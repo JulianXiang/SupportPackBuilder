@@ -1,0 +1,45 @@
+appId: cn.supportpack.builder
+productName: 个人支撑材料编排器
+asar: true
+afterPack: scripts/after-pack.mjs
+directories:
+  output: release
+  buildResources: resources
+files:
+  - out/**/*
+  - package.json
+asarUnpack:
+  - node_modules/sharp/**/*
+  - node_modules/@img/**/*
+  - node_modules/@napi-rs/canvas/**/*
+  - node_modules/@napi-rs/canvas-*/**/*
+extraResources:
+  - from: resources/public/fonts
+    to: fonts
+    filter:
+      - '**/*'
+  - from: THIRD_PARTY_LICENSES.md
+    to: THIRD_PARTY_LICENSES.md
+mac:
+  category: public.app-category.productivity
+  target:
+    - target: dmg
+      arch:
+        - arm64
+  icon: resources/icons/app.icns
+  identity: null
+dmg:
+  artifactName: SupportPack-Builder-${version}-${arch}.${ext}
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+  icon: resources/icons/app.ico
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: 个人支撑材料编排器
+  artifactName: SupportPack-Builder-Setup-${version}-${arch}.${ext}

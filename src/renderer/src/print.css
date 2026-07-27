@@ -1,0 +1,228 @@
+@font-face {
+  font-family: 'SupportPack Sans SC';
+  src: url('/fonts/SupportPackSansSC-Regular.ttf') format('truetype');
+  font-weight: 400;
+  font-style: normal;
+}
+
+@font-face {
+  font-family: 'SupportPack Sans SC';
+  src: url('/fonts/SupportPackSansSC-Bold.ttf') format('truetype');
+  font-weight: 700;
+  font-style: normal;
+}
+
+@page {
+  size: A4 portrait;
+  margin: 0;
+}
+
+@page landscape-page {
+  size: A4 landscape;
+  margin: 0;
+}
+
+@page toc-portrait {
+  size: A4 portrait;
+  margin: 12.7mm;
+}
+
+@page toc-landscape {
+  size: A4 landscape;
+  margin: 12.7mm;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  min-height: 100%;
+  color: #000;
+  background: #fff;
+  font-family:
+    'Songti SC', 'STSong', 'SimSun', 'SupportPack Sans SC', 'PingFang SC', 'Microsoft YaHei', serif;
+}
+
+.print-page {
+  position: relative;
+  display: flex;
+  width: 210mm;
+  height: 297mm;
+  overflow: hidden;
+  break-after: page;
+  page-break-after: always;
+}
+
+.print-page.landscape {
+  width: 297mm;
+  height: 210mm;
+  page: landscape-page;
+}
+
+.print-page:last-child {
+  break-after: auto;
+  page-break-after: auto;
+}
+
+.cover-page {
+  flex-direction: column;
+  align-items: center;
+  padding: 27mm 12.7mm 22mm;
+  text-align: center;
+}
+
+.cover-page h1 {
+  width: 100%;
+  margin: 0;
+  padding: 4mm 0 5mm;
+  border-top: 0.3mm solid #5b9bd5;
+  border-bottom: 0.3mm solid #5b9bd5;
+  font-size: 36pt;
+  font-weight: 400;
+  line-height: 1.35;
+  letter-spacing: 0;
+}
+
+.cover-information {
+  width: 126mm;
+  margin-top: 58mm;
+  text-align: left;
+}
+
+.cover-information p {
+  display: grid;
+  grid-template-columns: 30mm 1fr;
+  gap: 8mm;
+  margin: 0 0 7mm;
+  font-size: 12pt;
+  line-height: 1.7;
+}
+
+.cover-information span {
+  color: #000;
+  font-weight: 400;
+}
+
+.cover-information strong {
+  font-weight: 400;
+}
+
+.cover-page time {
+  margin-top: auto;
+  font-size: 12pt;
+  color: #000;
+}
+
+.toc-document {
+  page: toc-portrait;
+  width: auto;
+  min-height: auto;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+}
+
+.toc-document.landscape {
+  page: toc-landscape;
+}
+
+.toc-document h1 {
+  margin: 0 0 11mm;
+  text-align: center;
+  font-size: 20pt;
+  font-weight: 400;
+  line-height: 1.45;
+  letter-spacing: 0.18em;
+}
+
+.toc-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.toc-entry {
+  display: flex;
+  align-items: flex-end;
+  margin-bottom: 3.2mm;
+  break-inside: avoid;
+  page-break-inside: avoid;
+  font-size: 12pt;
+  line-height: 1.5;
+}
+
+.toc-entry.level-1 {
+  margin-top: 4.5mm;
+  font-size: 12pt;
+  font-weight: 700;
+}
+
+.toc-entry.level-2 {
+  padding-left: 5.6mm;
+  font-size: 12pt;
+  font-weight: 400;
+}
+
+.toc-entry.level-3 {
+  padding-left: 11.2mm;
+  color: #000;
+  font-weight: 400;
+}
+
+.toc-title {
+  max-width: 82%;
+  overflow-wrap: anywhere;
+}
+
+.toc-dots {
+  min-width: 8mm;
+  flex: 1;
+  margin: 0 2mm 1.7mm;
+  border-bottom: 0.28mm dotted #000;
+}
+
+.toc-page-number {
+  min-width: 10mm;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.title-page {
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: flex-start;
+  padding: 12.7mm;
+  text-align: left;
+}
+
+.title-sequence {
+  margin-bottom: 5mm;
+  color: #000;
+  font-size: 12pt;
+  font-weight: 700;
+}
+
+.title-page h1 {
+  max-width: 100%;
+  margin: 0;
+  font-size: 22pt;
+  line-height: 1.45;
+  letter-spacing: 0;
+}
+
+.title-category {
+  margin: 8mm 0 0;
+  color: #000;
+  font-size: 12pt;
+}
+
+.title-notes {
+  max-width: 100%;
+  margin: 7mm 0 0;
+  color: #000;
+  font-size: 11pt;
+  line-height: 1.75;
+}

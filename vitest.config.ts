@@ -1,0 +1,20 @@
+import { resolve } from 'node:path'
+import { defineConfig } from 'vitest/config'
+
+export default defineConfig({
+  resolve: {
+    alias: {
+      '@shared': resolve('src/shared'),
+      '@main': resolve('src/main'),
+      '@renderer': resolve('src/renderer/src'),
+    },
+  },
+  test: {
+    environment: 'node',
+    include: ['tests/**/*.test.ts', 'tests/**/*.test.tsx'],
+    coverage: {
+      reporter: ['text', 'html'],
+      include: ['src/shared/**/*.ts', 'src/main/services/**/*.ts'],
+    },
+  },
+})
