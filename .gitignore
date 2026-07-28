@@ -1,14 +1,102 @@
+# 依赖与包管理器本地缓存
 node_modules/
+.npm/
+.pnpm-store/
+.yarn/cache/
+.yarn/unplugged/
+
+# 编译、打包与测试产物
 out/
 dist/
 release/
+build/
 coverage/
 playwright-report/
 test-results/
-*.log
-.DS_Store
+.nyc_output/
 .vite/
+.electron-vite/
 .cache/
+*.dmg
+*.exe
+*.msi
+*.AppImage
+*.snap
+*.blockmap
+*.asar
+
+# 日志、崩溃转储与临时文件
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+*.dmp
+*.core
+core.*
+*.tmp
+*.temp
+*.bak
+*.swp
+*.swo
+*~
+
+# 环境变量、访问令牌、私钥与签名凭据
+.env
+.env.*
+!.env.example
+!.env.*.example
+.npmrc
+.yarnrc
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+*.keystore
+*.mobileprovision
+*.provisionprofile
+**/credentials.json
+**/secrets.json
+**/tokens.json
+
+# SupportPack 本地项目、原始材料与导出结果
+# template 中可能包含真实个人材料，只保留在本机；仅跟踪空目录占位文件。
+template/*
+!template/.gitkeep
+private/
+private-materials/
+local-materials/
+local-projects/
+user-projects/
+support-pack-projects/
+*.spack
+*.spack-backup
+**/.spack-import-*/
+**/project.json
+**/project.json.tmp
+**/project.json.bak
+**/assets/
+**/cache/
+**/temp/
+**/output/
+
+# 如后续增加应用自身的公开静态资源，允许 src 下的 assets 被跟踪。
+!src/**/assets/
+!src/**/assets/**
+
+# 自动生成的测试夹具、图标和大型离线运行时
 fixtures/generated/
 resources/icons/generated/
 vendor/libreoffice-runtime/
+
+# 操作系统与编辑器元数据
+.DS_Store
+Thumbs.db
+Desktop.ini
+.idea/
+.vscode/
+.fleet/
+.history/
+*.code-workspace

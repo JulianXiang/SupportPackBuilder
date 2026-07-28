@@ -86,7 +86,7 @@ Playwright 启动生产构建，并为每次运行使用独立的临时 Electron
 - `npm run smoke:libreoffice`：通过；打包内 LibreOffice 将 DOCX、PPTX、XLSX 分别转换为 2、2、3 页可重读 PDF，PPTX 隐藏幻灯片未输出
 - 最终 Apple Silicon `.app` 原生 GUI 回归：通过 macOS 原生文件对话框打开固定项目，经正式导出界面生成 16 页 PDF；应用内 11 项输出校验全部通过
 - `npm run smoke:verify`：通过，状态为 `PACKAGED_SMOKE_OK`；成品 13,302,515 字节，包含 3 项 Office 材料、13 个打印页码，前三页依次为封面、空白背页、目录，SHA-256 为 `89548a4c2a7eac99a3d6f4c1f4135fe0ff5bc2d0ce5d45ba249ebb875c007291`
-- `template/1.向军毅支撑材料（2025年11月12日）v3-业绩类.docx`：通过 OOXML 导入识别，并由最终 `.app` 内 LibreOffice 转换为 278 页、98,547,361 字节的可重读 PDF；278 页均为约 595.30×841.89 pt，模板原件仍与 Git 基线一致
+- 本地隐私模板回归：通过 OOXML 导入识别，并由最终 `.app` 内 LibreOffice 转换为 278 页、98,547,361 字节的可重读 PDF；278 页均为约 595.30×841.89 pt。真实模板仅保存在开发机 `template/`，不纳入 Git 或发布包
 - 最终应用主程序、Sharp 和 Canvas 原生模块均经 `file` 确认为 arm64
 - 打包内 LibreOffice 目录未发现断裂符号链接，`soffice --version` 返回预期固定版本
 - Electron Fuses 检查通过：RunAsNode、NODE_OPTIONS、Node 调试参数和额外 file 权限关闭，ASAR 完整性与 OnlyLoadAppFromAsar 开启
