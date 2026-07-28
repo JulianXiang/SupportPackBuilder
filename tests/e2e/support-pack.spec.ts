@@ -36,7 +36,7 @@ test.beforeAll(async () => {
     ),
   )
   electronApp = await electron.launch({
-    args: [resolve('.')],
+    args: [`--user-data-dir=${join(temporaryDirectory, 'electron-user-data')}`, resolve('.')],
     env: {
       ...environment,
       SPACK_E2E: '1',
@@ -356,6 +356,91 @@ test('完成真实项目、导入、页面编辑、保存、重开和 A4 PDF 导
           plannedPage.printedPageLabel === `— ${plannedPage.logicalPageNumber?.value ?? ''} —`,
       ),
   ).toBe(true)
+
+  const previewScroll = window.locator('.preview-scroll')
+  const previewScrollbar = window.getByRole('scrollbar', { name: '页面预览滚动条' })
+  const previewScrollbarThumb = previewScrollbar.locator('.preview-scrollbar-thumb')
+  await expect(previewScrollbar).toBeVisible()
+  await expect(previewScrollbar).toHaveAttribute('aria-controls', 'preview-scroll-region')
+  const maximumScrollTop = Number(await previewScrollbar.getAttribute('aria-valuemax'))
+  expect(maximumScrollTop).toBeGreaterThan(0)
+  const initialRenderedPageCount = await window.locator('.page-card').count()
+  expect(initialRenderedPageCount).toBeLessThan(previewPlan.totalPageCount)
+
+  const scrollbarBounds = await previewScrollbar.boundingBox()
+  if (!scrollbarBounds) throw new Error('无法读取页面预览滚动条的位置。')
+  await previewScrollbar.click({
+    position: { x: scrollbarBounds.width / 2, y: scrollbarBounds.height - 2 },
+  })
+  await expect
+    .poll(async () => await previewScroll.evaluate((element) => element.scrollTop))
+    .toBeGreaterThan(0)
+
+  await previewScrollbar.focus()
+  await window.keyboard.press('Home')
+  await expect
+    .poll(async () => await previewScroll.evaluate((element) => element.scrollTop))
+    .toBe(0)
+  await window.keyboard.press('PageDown')
+  await expect
+    .poll(async () => await previewScroll.evaluate((element) => element.scrollTop))
+    .toBeGreaterThan(0)
+  await window.keyboard.press('PageUp')
+  await expect
+    .poll(async () => await previewScroll.evaluate((element) => element.scrollTop))
+    .toBe(0)
+  await window.keyboard.press('End')
+  await expect
+    .poll(async () => await previewScroll.evaluate((element) => element.scrollTop))
+    .toBeCloseTo(maximumScrollTop, 0)
+  await expect(
+    window.locator('.page-card').filter({ hasText: `物理页 ${previewPlan.totalPageCount}` }),
+  ).toBeVisible()
+
+  await window.keyboard.press('Home')
+  await expect
+    .poll(async () => await previewScroll.evaluate((element) => element.scrollTop))
+    .toBe(0)
+  await previewScrollbarThumb.scrollIntoViewIfNeeded()
+  await expect(previewScrollbarThumb).toBeInViewport()
+  await window.evaluate(
+    async () =>
+      await new Promise<void>((resolveAnimationFrame) => {
+        globalThis.requestAnimationFrame(() => resolveAnimationFrame())
+      }),
+  )
+  const thumbBounds = await previewScrollbarThumb.boundingBox()
+  const dragTrackBounds = await previewScrollbar.boundingBox()
+  if (!thumbBounds || !dragTrackBounds) throw new Error('无法读取页面预览滑块的位置。')
+  expect(thumbBounds.height).toBeGreaterThanOrEqual(36)
+  await window.mouse.move(
+    thumbBounds.x + thumbBounds.width / 2,
+    thumbBounds.y + thumbBounds.height / 2,
+  )
+  await window.mouse.down()
+  await window.mouse.move(
+    dragTrackBounds.x + dragTrackBounds.width / 2,
+    dragTrackBounds.y + dragTrackBounds.height - 2,
+    { steps: 8 },
+  )
+  await window.mouse.up()
+  await expect
+    .poll(async () => await previewScroll.evaluate((element) => element.scrollTop))
+    .toBeCloseTo(maximumScrollTop, 0)
+
+  await previewScrollbar.focus()
+  await window.keyboard.press('Home')
+  const initialThumbHeight = (await previewScrollbarThumb.boundingBox())?.height
+  if (!initialThumbHeight) throw new Error('无法读取初始页面预览滑块高度。')
+  const zoomSlider = window.locator('.zoom-control').getByRole('slider')
+  await zoomSlider.focus()
+  await window.keyboard.press('End')
+  await expect(zoomSlider).toHaveAttribute('aria-valuenow', '290')
+  await expect
+    .poll(async () => (await previewScrollbarThumb.boundingBox())?.height ?? 0)
+    .toBeLessThan(initialThumbHeight)
+  await previewScrollbar.focus()
+  await window.keyboard.press('Home')
 
   await window.locator('.top-toolbar').getByRole('button', { name: '导出 PDF' }).click()
   const exportDialog = window.getByRole('dialog')

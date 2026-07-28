@@ -4,7 +4,7 @@
 
 ### 单元测试
 
-Vitest 覆盖页码范围、A4 几何、旋转矩阵、PagePlan、逻辑页码、三级中文编号、十以上序号、空目录排除、拖拽重排、项目 schema v1→v2 迁移、封面字段独立性和 LibreOffice 运行时解析。
+Vitest 覆盖页码范围、A4 几何、旋转矩阵、PagePlan、逻辑页码、三级中文编号、十以上序号、空目录排除、拖拽重排、项目 schema v1→v2 迁移、封面字段独立性、页面预览滚动条几何和 LibreOffice 运行时解析。
 
 ### 集成测试
 
@@ -24,7 +24,7 @@ Vitest 覆盖页码范围、A4 几何、旋转矩阵、PagePlan、逻辑页码�
 
 ### Electron E2E
 
-Playwright 启动生产构建。只有系统对话框在 `SPACK_E2E=1` 且应用未打包时由测试适配器提供确定路径；文件校验、复制、OOXML 分析、LibreOffice 转换、PDF.js 缩略图、隐藏打印、utilityProcess、pdf-lib 合并和输出校验全部使用生产服务。
+Playwright 启动生产构建，并为每次运行使用独立的临时 Electron 用户数据目录，避免已安装应用的单实例锁和最近项目记录干扰。只有系统对话框在 `SPACK_E2E=1` 且应用未打包时由测试适配器提供确定路径；文件校验、复制、OOXML 分析、LibreOffice 转换、PDF.js 缩略图、隐藏打印、utilityProcess、pdf-lib 合并和输出校验全部使用生产服务。
 
 核心流程覆盖：
 
@@ -33,6 +33,7 @@ Playwright 启动生产构建。只有系统对话框在 `SPACK_E2E=1` 且应用
 - 验证空目录显示“未输出”、不占编号且不进入目录
 - 导入 4 个 PDF、JPG 图片集合、PNG、WebP、DOCX、PPTX 和 XLSX
 - 设置 PDF 页码范围、旋转和删除内容页
+- 验证页面预览常驻滚动条、轨道翻页、拖动、键盘定位、缩放重算和虚拟渲染
 - 保存并重新打开 schema v2 项目
 - 比较 UI PagePlan、输出页面 ID、材料 ID、目录映射和校验报告
 - 验证最终每页 A4、原始文件未修改且 Renderer 无控制台错误
@@ -75,10 +76,10 @@ Playwright 启动生产构建。只有系统对话框在 `SPACK_E2E=1` 且应用
 - `npm run typecheck`：通过
 - `npm run lint`：通过
 - `npm run format:check`：通过
-- `npm run test:unit`：8 个文件、57 项测试全部通过
+- `npm run test:unit`：9 个文件、62 项测试全部通过
 - `npm run test:integration`：5 个文件、14 项测试全部通过
 - `npm test`：13 个文件、71 项测试全部通过
-- `npm run test:e2e`：1 项核心流程通过，耗时约 1.7 分钟
+- `npm run test:e2e`：1 项核心流程通过，耗时约 1.9 分钟；常驻滚动条的显示、轨道翻页、鼠标拖动、键盘定位、缩放重算和虚拟渲染均通过
 - `npm run build`：通过
 - `npm run dist:mac`：通过，生成 Apple Silicon `.app` 与 DMG
 - `npm audit --omit=dev`：0 个生产依赖漏洞

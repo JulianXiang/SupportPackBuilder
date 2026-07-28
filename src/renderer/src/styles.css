@@ -291,11 +291,75 @@ button {
   flex: 1;
   margin: 4px 0;
 }
-.preview-scroll {
+.preview-viewport {
+  position: relative;
   flex: 1;
   min-height: 0;
+  overflow: hidden;
+}
+.preview-scroll {
+  position: absolute;
+  inset: 0;
   overflow: auto;
-  padding: 14px;
+  padding: 14px 28px 14px 14px;
+  scrollbar-width: none;
+}
+.preview-scroll::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
+.preview-scroll:focus-visible {
+  outline: 2px solid #27679f;
+  outline-offset: -2px;
+}
+.preview-scrollbar {
+  position: absolute;
+  top: 8px;
+  right: 4px;
+  bottom: 8px;
+  z-index: 4;
+  width: 10px;
+  border: 1px solid #c4ced7;
+  border-radius: 999px;
+  background: #dce3e9;
+  opacity: 1;
+  transition:
+    background 0.12s,
+    opacity 0.12s;
+  user-select: none;
+}
+.preview-scrollbar:hover,
+.preview-scrollbar:focus-visible {
+  background: #d1dbe3;
+}
+.preview-scrollbar:focus-visible {
+  outline: 2px solid #27679f;
+  outline-offset: 2px;
+}
+.preview-scrollbar.hidden {
+  pointer-events: none;
+  visibility: hidden;
+  opacity: 0;
+}
+.preview-scrollbar-thumb {
+  position: absolute;
+  top: 0;
+  left: 1px;
+  right: 1px;
+  min-height: 36px;
+  border-radius: 999px;
+  background: #748da3;
+  box-shadow: 0 1px 2px rgb(32 52 70 / 22%);
+  cursor: grab;
+  touch-action: none;
+  will-change: transform;
+}
+.preview-scrollbar-thumb:hover {
+  background: #5d7890;
+}
+.preview-scrollbar-thumb.dragging {
+  background: #3f6482;
+  cursor: grabbing;
 }
 .preview-center {
   height: 100%;

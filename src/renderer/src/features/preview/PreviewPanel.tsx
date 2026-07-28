@@ -19,11 +19,17 @@ import { SortableContext, useSortable, rectSortingStrategy } from '@dnd-kit/sort
 import { CSS } from '@dnd-kit/utilities'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { App, Badge, Button, Empty, Modal, Slider, Space, Spin, Tag, Tooltip } from 'antd'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { PagePlan, PlannedPage } from '../../../../shared/schemas/page-plan-schema.js'
 import type { Project, Rotation } from '../../../../shared/schemas/project-schema.js'
 import type { Selection } from '../../stores/project-store.js'
 import { findMaterial } from '../../utils/project.js'
+import {
+  calculatePreviewScrollbarMetrics,
+  calculatePreviewScrollbarThumbTop,
+  calculatePreviewScrollTopFromDrag,
+  type PreviewScrollbarMetrics,
+} from './preview-scrollbar.js'
 
 const PAGE_TYPE_LABELS: Record<PlannedPage['pageType'], string> = {
   cover: '封面',
@@ -43,6 +49,28 @@ const withoutRotation = (
   sourcePageId: string,
 ): Record<string, Rotation> =>
   Object.fromEntries(Object.entries(values).filter(([id]) => id !== sourcePageId))
+
+const EMPTY_SCROLLBAR_METRICS: PreviewScrollbarMetrics = {
+  visible: false,
+  maxScrollTop: 0,
+  thumbHeight: 0,
+  maxThumbTop: 0,
+}
+
+const equalScrollbarMetrics = (
+  first: PreviewScrollbarMetrics,
+  second: PreviewScrollbarMetrics,
+): boolean =>
+  first.visible === second.visible &&
+  first.maxScrollTop === second.maxScrollTop &&
+  first.thumbHeight === second.thumbHeight &&
+  first.maxThumbTop === second.maxThumbTop
+
+type ScrollbarDragState = {
+  pointerId: number
+  startClientY: number
+  startScrollTop: number
+}
 
 type PageCardProps = {
   page: PlannedPage
@@ -176,9 +204,17 @@ type PreviewPanelProps = {
 export const PreviewPanel = (props: PreviewPanelProps): React.JSX.Element => {
   const { message } = App.useApp()
   const scrollRef = useRef<HTMLDivElement>(null)
+  const scrollbarTrackRef = useRef<HTMLDivElement>(null)
+  const scrollbarThumbRef = useRef<HTMLDivElement>(null)
+  const scrollbarMetricsRef = useRef<PreviewScrollbarMetrics>(EMPTY_SCROLLBAR_METRICS)
+  const scrollbarDragRef = useRef<ScrollbarDragState | null>(null)
+  const scrollbarFrameRef = useRef<number | null>(null)
+  const scrollTopRef = useRef(0)
   const lastSelectedIndex = useRef<number | null>(null)
   const [thumbnailWidth, setThumbnailWidth] = useState(190)
   const [largeImage, setLargeImage] = useState<string | null>(null)
+  const [scrollbarMetrics, setScrollbarMetrics] =
+    useState<PreviewScrollbarMetrics>(EMPTY_SCROLLBAR_METRICS)
   const columns = thumbnailWidth <= 170 ? 4 : thumbnailWidth <= 230 ? 3 : 2
   const pages = props.plan?.pages ?? []
   const rows = Math.ceil(pages.length / columns)
@@ -188,8 +224,163 @@ export const PreviewPanel = (props: PreviewPanelProps): React.JSX.Element => {
     estimateSize: () => thumbnailWidth * 1.58 + 92,
     overscan: 2,
   })
+  const virtualPageHeight = virtualizer.getTotalSize()
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }))
   const selected = useMemo(() => new Set(props.selectedPageIds), [props.selectedPageIds])
+
+  const updateScrollbarThumb = useCallback((): void => {
+    const scrollElement = scrollRef.current
+    const trackElement = scrollbarTrackRef.current
+    const thumbElement = scrollbarThumbRef.current
+    if (!scrollElement || !trackElement || !thumbElement) return
+    const metrics = scrollbarMetricsRef.current
+    const scrollTop = Math.min(Math.max(0, scrollElement.scrollTop), metrics.maxScrollTop)
+    const thumbTop = calculatePreviewScrollbarThumbTop({ ...metrics, scrollTop })
+    scrollTopRef.current = scrollTop
+    thumbElement.style.transform = `translateY(${thumbTop}px)`
+    trackElement.setAttribute('aria-valuenow', String(Math.round(scrollTop)))
+  }, [])
+
+  const scheduleScrollbarThumbUpdate = useCallback((): void => {
+    if (scrollbarFrameRef.current !== null) return
+    scrollbarFrameRef.current = window.requestAnimationFrame(() => {
+      scrollbarFrameRef.current = null
+      updateScrollbarThumb()
+    })
+  }, [updateScrollbarThumb])
+
+  const measureScrollbar = useCallback((): void => {
+    const scrollElement = scrollRef.current
+    const trackElement = scrollbarTrackRef.current
+    if (!scrollElement || !trackElement) return
+    const metrics = calculatePreviewScrollbarMetrics({
+      clientHeight: scrollElement.clientHeight,
+      scrollHeight: scrollElement.scrollHeight,
+      trackHeight: trackElement.clientHeight,
+    })
+    scrollbarMetricsRef.current = metrics
+    setScrollbarMetrics((current) => (equalScrollbarMetrics(current, metrics) ? current : metrics))
+    scheduleScrollbarThumbUpdate()
+  }, [scheduleScrollbarThumbUpdate])
+
+  useEffect(() => {
+    const scrollElement = scrollRef.current
+    const trackElement = scrollbarTrackRef.current
+    if (!scrollElement || !trackElement) return
+    const resizeObserver = new ResizeObserver(measureScrollbar)
+    const canvasElement = scrollElement.querySelector<HTMLElement>('.virtual-page-canvas')
+    resizeObserver.observe(scrollElement)
+    resizeObserver.observe(trackElement)
+    if (canvasElement) resizeObserver.observe(canvasElement)
+    scrollElement.addEventListener('scroll', scheduleScrollbarThumbUpdate, { passive: true })
+    measureScrollbar()
+    return () => {
+      resizeObserver.disconnect()
+      scrollElement.removeEventListener('scroll', scheduleScrollbarThumbUpdate)
+      if (scrollbarFrameRef.current !== null) {
+        window.cancelAnimationFrame(scrollbarFrameRef.current)
+        scrollbarFrameRef.current = null
+      }
+    }
+  }, [measureScrollbar, pages.length > 0, scheduleScrollbarThumbUpdate])
+
+  useEffect(() => {
+    const frame = window.requestAnimationFrame(measureScrollbar)
+    return () => window.cancelAnimationFrame(frame)
+  }, [columns, measureScrollbar, pages.length, thumbnailWidth, virtualPageHeight])
+
+  const scrollByKeyboard = useCallback(
+    (event: React.KeyboardEvent<HTMLElement>): void => {
+      if (event.altKey || event.ctrlKey || event.metaKey) return
+      const scrollElement = scrollRef.current
+      if (!scrollElement) return
+      const pageStep = Math.max(1, Math.round(scrollElement.clientHeight * 0.9))
+      let nextScrollTop: number | null = null
+      if (event.key === 'PageDown') nextScrollTop = scrollElement.scrollTop + pageStep
+      else if (event.key === 'PageUp') nextScrollTop = scrollElement.scrollTop - pageStep
+      else if (event.key === 'Home') nextScrollTop = 0
+      else if (event.key === 'End') nextScrollTop = scrollbarMetricsRef.current.maxScrollTop
+      if (nextScrollTop === null) return
+      event.preventDefault()
+      scrollElement.scrollTop = Math.min(
+        Math.max(0, nextScrollTop),
+        scrollbarMetricsRef.current.maxScrollTop,
+      )
+      scheduleScrollbarThumbUpdate()
+    },
+    [scheduleScrollbarThumbUpdate],
+  )
+
+  const handleScrollbarTrackPointerDown = useCallback(
+    (event: React.PointerEvent<HTMLDivElement>): void => {
+      if (event.button !== 0 || event.target === scrollbarThumbRef.current) return
+      const scrollElement = scrollRef.current
+      if (!scrollElement) return
+      const metrics = scrollbarMetricsRef.current
+      const trackBounds = event.currentTarget.getBoundingClientRect()
+      const currentThumbTop = calculatePreviewScrollbarThumbTop({
+        ...metrics,
+        scrollTop: scrollElement.scrollTop,
+      })
+      const pointerTop = event.clientY - trackBounds.top
+      const direction = pointerTop < currentThumbTop ? -1 : 1
+      event.currentTarget.focus({ preventScroll: true })
+      scrollElement.scrollTop = Math.min(
+        Math.max(0, scrollElement.scrollTop + direction * scrollElement.clientHeight),
+        metrics.maxScrollTop,
+      )
+      scheduleScrollbarThumbUpdate()
+    },
+    [scheduleScrollbarThumbUpdate],
+  )
+
+  const handleScrollbarThumbPointerDown = useCallback(
+    (event: React.PointerEvent<HTMLDivElement>): void => {
+      if (event.button !== 0) return
+      const scrollElement = scrollRef.current
+      if (!scrollElement) return
+      event.preventDefault()
+      event.stopPropagation()
+      event.currentTarget.setPointerCapture(event.pointerId)
+      event.currentTarget.classList.add('dragging')
+      scrollbarTrackRef.current?.focus({ preventScroll: true })
+      scrollbarDragRef.current = {
+        pointerId: event.pointerId,
+        startClientY: event.clientY,
+        startScrollTop: scrollElement.scrollTop,
+      }
+    },
+    [],
+  )
+
+  const handleScrollbarThumbPointerMove = useCallback(
+    (event: React.PointerEvent<HTMLDivElement>): void => {
+      const drag = scrollbarDragRef.current
+      const scrollElement = scrollRef.current
+      if (drag?.pointerId !== event.pointerId || !scrollElement) return
+      scrollElement.scrollTop = calculatePreviewScrollTopFromDrag({
+        ...scrollbarMetricsRef.current,
+        startScrollTop: drag.startScrollTop,
+        deltaY: event.clientY - drag.startClientY,
+      })
+      scheduleScrollbarThumbUpdate()
+    },
+    [scheduleScrollbarThumbUpdate],
+  )
+
+  const finishScrollbarThumbDrag = useCallback(
+    (event: React.PointerEvent<HTMLDivElement>): void => {
+      const drag = scrollbarDragRef.current
+      if (drag?.pointerId !== event.pointerId) return
+      if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+        event.currentTarget.releasePointerCapture(event.pointerId)
+      }
+      event.currentTarget.classList.remove('dragging')
+      scrollbarDragRef.current = null
+      scheduleScrollbarThumbUpdate()
+    },
+    [scheduleScrollbarThumbUpdate],
+  )
 
   const selectPage = (page: PlannedPage, index: number, event: React.MouseEvent): void => {
     let next: string[]
@@ -350,55 +541,89 @@ export const PreviewPanel = (props: PreviewPanelProps): React.JSX.Element => {
           <Slider min={145} max={290} value={thumbnailWidth} onChange={setThumbnailWidth} />
         </div>
       </div>
-      <div ref={scrollRef} className="preview-scroll">
-        {props.loading && pages.length === 0 ? (
-          <div className="preview-center">
-            <Spin description="正在计算页面计划" />
-          </div>
-        ) : pages.length === 0 ? (
-          <div className="preview-center">
-            <Empty description="导入材料后，最终页面会显示在这里" />
-          </div>
-        ) : (
-          <DndContext
-            sensors={sensors}
-            collisionDetection={closestCenter}
-            onDragEnd={handleDragEnd}
-          >
-            <SortableContext items={pages.map((page) => page.id)} strategy={rectSortingStrategy}>
-              <div className="virtual-page-canvas" style={{ height: virtualizer.getTotalSize() }}>
-                {virtualizer.getVirtualItems().map((virtualRow) => {
-                  const rowPages = pages.slice(
-                    virtualRow.index * columns,
-                    (virtualRow.index + 1) * columns,
-                  )
-                  return (
-                    <div
-                      key={virtualRow.key}
-                      className="virtual-page-row"
-                      style={{ transform: `translateY(${virtualRow.start}px)` }}
-                    >
-                      {rowPages.map((page, columnIndex) => {
-                        const pageIndex = virtualRow.index * columns + columnIndex
-                        return (
-                          <PageCard
-                            key={page.id}
-                            page={page}
-                            planFingerprint={props.plan?.planFingerprint ?? ''}
-                            width={thumbnailWidth}
-                            selected={selected.has(page.id)}
-                            onSelect={(event) => selectPage(page, pageIndex, event)}
-                            onOpen={setLargeImage}
-                          />
-                        )
-                      })}
-                    </div>
-                  )
-                })}
-              </div>
-            </SortableContext>
-          </DndContext>
-        )}
+      <div className="preview-viewport">
+        <div
+          id="preview-scroll-region"
+          ref={scrollRef}
+          className="preview-scroll"
+          tabIndex={0}
+          aria-label="页面缩略图预览"
+          onKeyDown={scrollByKeyboard}
+        >
+          {props.loading && pages.length === 0 ? (
+            <div className="preview-center">
+              <Spin description="正在计算页面计划" />
+            </div>
+          ) : pages.length === 0 ? (
+            <div className="preview-center">
+              <Empty description="导入材料后，最终页面会显示在这里" />
+            </div>
+          ) : (
+            <DndContext
+              sensors={sensors}
+              collisionDetection={closestCenter}
+              onDragEnd={handleDragEnd}
+            >
+              <SortableContext items={pages.map((page) => page.id)} strategy={rectSortingStrategy}>
+                <div className="virtual-page-canvas" style={{ height: virtualPageHeight }}>
+                  {virtualizer.getVirtualItems().map((virtualRow) => {
+                    const rowPages = pages.slice(
+                      virtualRow.index * columns,
+                      (virtualRow.index + 1) * columns,
+                    )
+                    return (
+                      <div
+                        key={virtualRow.key}
+                        className="virtual-page-row"
+                        style={{ transform: `translateY(${virtualRow.start}px)` }}
+                      >
+                        {rowPages.map((page, columnIndex) => {
+                          const pageIndex = virtualRow.index * columns + columnIndex
+                          return (
+                            <PageCard
+                              key={page.id}
+                              page={page}
+                              planFingerprint={props.plan?.planFingerprint ?? ''}
+                              width={thumbnailWidth}
+                              selected={selected.has(page.id)}
+                              onSelect={(event) => selectPage(page, pageIndex, event)}
+                              onOpen={setLargeImage}
+                            />
+                          )
+                        })}
+                      </div>
+                    )
+                  })}
+                </div>
+              </SortableContext>
+            </DndContext>
+          )}
+        </div>
+        <div
+          ref={scrollbarTrackRef}
+          className={`preview-scrollbar ${scrollbarMetrics.visible ? '' : 'hidden'}`}
+          role="scrollbar"
+          aria-label="页面预览滚动条"
+          aria-controls="preview-scroll-region"
+          aria-orientation="vertical"
+          aria-valuemin={0}
+          aria-valuemax={Math.round(scrollbarMetrics.maxScrollTop)}
+          aria-valuenow={Math.round(Math.min(scrollTopRef.current, scrollbarMetrics.maxScrollTop))}
+          aria-hidden={!scrollbarMetrics.visible}
+          tabIndex={scrollbarMetrics.visible ? 0 : -1}
+          onKeyDown={scrollByKeyboard}
+          onPointerDown={handleScrollbarTrackPointerDown}
+        >
+          <div
+            ref={scrollbarThumbRef}
+            className="preview-scrollbar-thumb"
+            style={{ height: scrollbarMetrics.thumbHeight }}
+            onPointerDown={handleScrollbarThumbPointerDown}
+            onPointerMove={handleScrollbarThumbPointerMove}
+            onPointerUp={finishScrollbarThumbDrag}
+            onPointerCancel={finishScrollbarThumbDrag}
+          />
+        </div>
       </div>
       <Modal
         open={Boolean(largeImage)}
