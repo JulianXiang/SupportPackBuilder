@@ -46,6 +46,7 @@ test.beforeAll(async () => {
         importFiles: [
           [fixtures.tenPagePdf, fixtures.landscapePdf, ...fixtures.jpgImages],
           [fixtures.nonStandardPdf, fixtures.rotatedPdf, fixtures.pngImage, fixtures.webpImage],
+          [fixtures.docxDocument, fixtures.pptxPresentation, fixtures.xlsxWithoutPrintSettings],
         ],
         exportPath: outputPath,
         confirmOverwrite: true,
@@ -76,7 +77,9 @@ const addDirectory = async (level: '一级' | '二级', title: string): Promise<
   const input = dialog.getByRole('textbox')
   await input.fill(title)
   await dialog.getByRole('button', { name: /确\s*定/ }).click()
-  await expect(window.locator('.outline-panel').getByText(title, { exact: true })).toBeVisible()
+  await expect(
+    window.locator('.outline-panel').locator('.outline-row').filter({ hasText: title }),
+  ).toBeVisible()
 }
 
 const dragRowBefore = async (sourceTitle: string, targetTitle: string): Promise<void> => {
@@ -124,6 +127,9 @@ test('完成真实项目、导入、页面编辑、保存、重开和 A4 PDF 导
     ...fixtures.jpgImages,
     fixtures.pngImage,
     fixtures.webpImage,
+    fixtures.docxDocument,
+    fixtures.pptxPresentation,
+    fixtures.xlsxWithoutPrintSettings,
   ]
   const sourceSnapshots = await Promise.all(sourcePaths.map(async (path) => await readFile(path)))
   window.on('console', (message) => {
@@ -142,36 +148,50 @@ test('完成真实项目、导入、页面编辑、保存、重开和 A4 PDF 导
   await newDialog.getByRole('button', { name: '选择位置并创建' }).click()
 
   await expect(window.getByText('项目目录', { exact: true })).toBeVisible()
-  await addDirectory('一级', '一、论文成果')
-  await window.locator('.outline-panel').getByText('一、论文成果', { exact: true }).click()
+  const inspector = window.locator('.inspector-panel')
+  await inspector.getByLabel('项目名称').fill('修改后的项目属性名称')
+  await inspector.getByLabel('项目名称').blur()
+  await expect(inspector.getByLabel('封面标题')).toHaveValue('2026 年度个人成果支撑材料')
+  await inspector.getByLabel('封面标题').fill('独立封面：2026 年度个人成果支撑材料')
+  await inspector.getByLabel('封面标题').blur()
+
+  await addDirectory('一级', '论文成果')
+  await window.locator('.outline-panel').getByText('论文成果', { exact: true }).click()
   await addDirectory('二级', '遥感变化描述论文')
-  await window.locator('.outline-panel').getByText('一、论文成果', { exact: true }).click()
+  await window.locator('.outline-panel').getByText('论文成果', { exact: true }).click()
   await addDirectory('二级', '人工智能教育论文')
-  await addDirectory('一级', '二、知识产权')
-  await window.locator('.outline-panel').getByText('二、知识产权', { exact: true }).click()
+  await addDirectory('一级', '知识产权')
+  await window.locator('.outline-panel').getByText('知识产权', { exact: true }).click()
   await addDirectory('二级', '发明专利')
+  await addDirectory('一级', '空目录')
 
   const outlinePanel = window.locator('.outline-panel')
   await outlinePanel
     .locator('.outline-row')
-    .filter({ hasText: '一、论文成果' })
+    .filter({ hasText: '论文成果' })
     .locator('.expand-button')
     .click()
   await outlinePanel
     .locator('.outline-row')
-    .filter({ hasText: '二、知识产权' })
+    .filter({ hasText: '知识产权' })
     .locator('.expand-button')
     .click()
-  await dragRowBefore('二、知识产权', '一、论文成果')
+  await dragRowBefore('知识产权', '论文成果')
+  await expect(
+    outlinePanel.locator('.outline-row').filter({ hasText: '知识产权' }).first(),
+  ).toContainText('未输出')
+  await expect(
+    outlinePanel.locator('.outline-row').filter({ hasText: '论文成果' }).first(),
+  ).toContainText('未输出')
   await outlinePanel
     .locator('.outline-row')
-    .filter({ hasText: '一、论文成果' })
+    .filter({ hasText: '论文成果' })
     .locator('.expand-button')
     .click()
   await dragRowBefore('人工智能教育论文', '遥感变化描述论文')
   await outlinePanel
     .locator('.outline-row')
-    .filter({ hasText: '二、知识产权' })
+    .filter({ hasText: '知识产权' })
     .locator('.expand-button')
     .click()
 
@@ -180,7 +200,7 @@ test('完成真实项目、导入、页面编辑、保存、重开和 A4 PDF 导
     .locator('.top-toolbar')
     .getByRole('button', { name: /导入文件$/ })
     .click()
-  const importDialog = window.getByRole('dialog')
+  const importDialog = window.getByRole('dialog', { name: '导入材料检查' })
   await expect(importDialog.getByText('导入材料检查')).toBeVisible()
   await importDialog.getByRole('radio', { name: '合并为同一材料', exact: true }).check()
   await importDialog.getByRole('button', { name: '确认导入' }).click()
@@ -216,12 +236,12 @@ test('完成真实项目、导入、页面编辑、保存、重开和 A4 PDF 导
     beforeDeleteCount - 1,
   )
 
-  await outline.getByText('发明专利', { exact: true }).click()
+  await outline.locator('.outline-row').filter({ hasText: '发明专利' }).first().click()
   await window
     .locator('.top-toolbar')
     .getByRole('button', { name: /导入文件$/ })
     .click()
-  const secondImportDialog = window.getByRole('dialog')
+  const secondImportDialog = window.getByRole('dialog', { name: '导入材料检查' })
   await expect(secondImportDialog.getByText('导入材料检查')).toBeVisible()
   await expect(secondImportDialog.locator('input[type="radio"][value="separate"]')).toBeChecked()
   await secondImportDialog.getByRole('button', { name: '确认导入' }).click()
@@ -232,23 +252,57 @@ test('完成真实项目、导入、页面编辑、保存、重开和 A4 PDF 导
   await expect(outline.getByText('rotated-source-page', { exact: true })).toBeVisible()
   await expect(outline.getByText('certificate', { exact: true })).toBeVisible()
   await expect(outline.getByText('scan', { exact: true })).toBeVisible()
+  await expect(
+    outlinePanel.locator('.outline-row').filter({ hasText: '知识产权' }).first(),
+  ).toContainText('一、')
+  await expect(
+    outlinePanel.locator('.outline-row').filter({ hasText: '论文成果' }).first(),
+  ).toContainText('二、')
+  await expect(
+    outlinePanel.locator('.outline-row').filter({ hasText: '空目录' }).first(),
+  ).toContainText('未输出')
+
+  await outline.locator('.outline-row').filter({ hasText: '发明专利' }).first().click()
+  await window
+    .locator('.top-toolbar')
+    .getByRole('button', { name: /导入文件$/ })
+    .click()
+  const officeImportDialog = window.getByRole('dialog', { name: '导入材料检查' })
+  await expect(officeImportDialog.getByText('导入材料检查')).toBeVisible({ timeout: 120_000 })
+  await expect(officeImportDialog).toContainText('DOCX')
+  await expect(officeImportDialog).toContainText('PPTX')
+  await expect(officeImportDialog).toContainText('XLSX')
+  await officeImportDialog.getByRole('button', { name: '确认导入' }).click()
+  await expect(officeImportDialog).toBeHidden({ timeout: 30_000 })
+  await expect(outline.getByText('office-document', { exact: true })).toBeVisible()
+  await expect(outline.getByText('office-presentation', { exact: true })).toBeVisible()
+  await expect(outline.getByText('office-workbook-auto-print', { exact: true })).toBeVisible()
+
+  await outline.getByText('office-document', { exact: true }).click()
+  const officeCards = window.locator('.page-card').filter({ hasText: 'office-document' })
+  await expect(officeCards.first()).toBeVisible({ timeout: 30_000 })
+  await officeCards.first().click()
+  await window.locator('.inspector-panel').getByRole('button', { name: '顺时针旋转' }).click()
+  await expect(window.locator('.page-card.selected')).toContainText('旋转 90°')
 
   await window.locator('.top-toolbar').getByRole('button', { name: '保存' }).click()
   await expect(window.locator('.status-bar')).toContainText('已保存', { timeout: 15_000 })
   const saved = ProjectSchema.parse(
     JSON.parse(await readFile(join(projectDirectory, 'project.json'), 'utf8')) as unknown,
   )
+  expect(saved.title).toBe('修改后的项目属性名称')
+  expect(saved.coverSettings.title).toBe('独立封面：2026 年度个人成果支撑材料')
   expect(saved.ownerName).toBe('张老师')
   expect(saved.organization).toBe('示例大学')
   expect(saved.tocSettings.title).toBe('支撑材料目录')
   expect(saved.exportSettings.contentHeadingMode).toBe('firstPage')
   expect(saved.pageNumberSettings.format).toBe('dash')
-  expect(saved.outlineNodes).toHaveLength(2)
-  expect(saved.outlineNodes.map((node) => node.title)).toEqual(['二、知识产权', '一、论文成果'])
+  expect(saved.outlineNodes).toHaveLength(3)
+  expect(saved.outlineNodes.map((node) => node.title)).toEqual(['知识产权', '论文成果', '空目录'])
   expect(saved.outlineNodes.flatMap((node) => node.children)).toHaveLength(3)
   expect(
     saved.outlineNodes
-      .find((node) => node.title === '一、论文成果')
+      .find((node) => node.title === '论文成果')
       ?.children.map((child) => child.title),
   ).toEqual(['人工智能教育论文', '遥感变化描述论文'])
   expect(
@@ -259,7 +313,14 @@ test('完成真实项目、导入、页面编辑、保存、重开和 A4 PDF 导
   ).toEqual(['图片材料（3 张）', 'ten-pages-a4', 'three-pages-landscape'])
   expect(
     saved.outlineNodes.flatMap((node) => node.children).flatMap((node) => node.materials),
-  ).toHaveLength(7)
+  ).toHaveLength(10)
+  expect(
+    saved.outlineNodes
+      .flatMap((node) => node.children)
+      .flatMap((node) => node.materials)
+      .filter((material) => material.sourceType === 'office')
+      .every((material) => material.sourceItems[0]?.conversion?.snapshotStatus === 'ready'),
+  ).toBe(true)
 
   await window.locator('.top-toolbar').getByRole('button', { name: '打开项目' }).click()
   await expect(outline.getByText('ten-pages-a4', { exact: true })).toBeVisible()
@@ -270,6 +331,18 @@ test('完成真实项目、导入、页面编辑、保存、重开和 A4 PDF 导
   expect(previewResult.ok).toBe(true)
   if (!previewResult.ok) throw new Error(previewResult.error.message)
   const previewPlan = previewResult.value
+  expect(
+    previewPlan.pages.find((plannedPage) => plannedPage.pageType === 'cover')?.displayTitle,
+  ).toBe('独立封面：2026 年度个人成果支撑材料')
+  expect(previewPlan.outputOutlineNodeIds).not.toContain(
+    saved.outlineNodes.find((node) => node.title === '空目录')?.id,
+  )
+  expect(previewPlan.tocEntries.some((entry) => entry.title === '空目录')).toBe(false)
+  expect(
+    previewPlan.tocEntries
+      .filter((entry) => entry.kind === 'level1')
+      .map((entry) => entry.displayText),
+  ).toEqual(['一、知识产权', '二、论文成果'])
   const firstContentPage = previewPlan.pages.find(
     (plannedPage) =>
       plannedPage.pageType === 'pdfContent' || plannedPage.pageType === 'imageContent',
@@ -300,13 +373,21 @@ test('完成真实项目、导入、页面编辑、保存、重开和 A4 PDF 导
     expect(outputPage.getWidth()).toBeCloseTo(A4_SIZE_POINTS.width, 1)
     expect(outputPage.getHeight()).toBeCloseTo(A4_SIZE_POINTS.height, 1)
   })
-  const outputPageIds = output.getPages().map((outputPage) => {
-    const marker = outputPage.node.get(PDFName.of('SPackPageId'))
+  const readMarker = (
+    outputPage: ReturnType<typeof output.getPages>[number],
+    name: string,
+  ): string | null => {
+    const marker = outputPage.node.get(PDFName.of(name))
     return marker instanceof PDFHexString || marker instanceof PDFString
       ? marker.decodeText()
       : null
-  })
+  }
+  const outputPageIds = output.getPages().map((outputPage) => readMarker(outputPage, 'SPackPageId'))
   expect(outputPageIds).toEqual(previewPlan.pages.map((plannedPage) => plannedPage.id))
+  const outputMaterialIds = output
+    .getPages()
+    .map((outputPage) => readMarker(outputPage, 'SPackMaterialId'))
+  expect(outputMaterialIds).toEqual(previewPlan.pages.map((plannedPage) => plannedPage.materialId))
   const reportNames = (await readdir(join(projectDirectory, 'output'))).filter((name) =>
     name.endsWith('-report.json'),
   )
@@ -320,6 +401,7 @@ test('完成真实项目、导入、页面编辑、保存、重开和 A4 PDF 导
   expect(report.checks.find((check) => check.code === 'toc-mapping')?.passed).toBe(true)
   expect(report.checks.find((check) => check.code === 'inline-headings')?.passed).toBe(true)
   expect(report.checks.find((check) => check.code === 'page-number-labels')?.passed).toBe(true)
+  expect(report.checks.find((check) => check.code === 'semantic-page-markers')?.passed).toBe(true)
   const sourceSnapshotsAfter = await Promise.all(
     sourcePaths.map(async (path) => await readFile(path)),
   )

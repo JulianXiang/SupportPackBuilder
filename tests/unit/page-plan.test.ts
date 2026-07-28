@@ -73,9 +73,9 @@ describe('PagePlan', () => {
     const contentPages = plan.pages.filter((page) => page.pageType === 'pdfContent')
 
     expect(contentPages[0]?.inlineHeadings).toEqual([
-      { level: 1, text: '一、论文成果' },
-      { level: 2, text: '第一作者论文' },
-      { level: 3, text: '测试材料' },
+      { level: 1, title: '论文成果', sequenceLabel: '一、', text: '一、论文成果' },
+      { level: 2, title: '第一作者论文', sequenceLabel: '（一）', text: '（一） 第一作者论文' },
+      { level: 3, title: '测试材料', sequenceLabel: '1.', text: '1. 测试材料' },
     ])
     expect(contentPages.slice(1).every((page) => page.inlineHeadings.length === 0)).toBe(true)
     expect(plan.outlineStartPages[IDS.level1]).toBe(1)
@@ -120,6 +120,43 @@ describe('PagePlan', () => {
 
     expect(plan.pages.some((page) => page.materialId === IDS.material)).toBe(false)
     expect(plan.tocEntries.some((entry) => entry.materialId === IDS.material)).toBe(false)
+  })
+
+  it('只为实际输出的目录编号，并在拖拽顺序变化后重新编号', () => {
+    const firstRoot = createOutlineFixture()[0]
+    const secondRoot = structuredClone(firstRoot)
+    if (!firstRoot || !secondRoot?.children[0]) {
+      throw new Error('测试目录结构无效。')
+    }
+    firstRoot.title = '论文成果'
+    firstRoot.order = 1
+    secondRoot.id = '00000000-0000-4000-8000-000000000012'
+    secondRoot.title = '知识产权'
+    secondRoot.order = 0
+    secondRoot.children[0].id = '00000000-0000-4000-8000-000000000013'
+    secondRoot.children[0].parentId = secondRoot.id
+    secondRoot.children[0].materials[0] = createMaterialFixture({
+      id: '00000000-0000-4000-8000-000000000014',
+      outlineNodeId: secondRoot.children[0].id,
+      title: '发明专利',
+    })
+    const emptyRoot = structuredClone(firstRoot)
+    emptyRoot.id = '00000000-0000-4000-8000-000000000015'
+    emptyRoot.title = '空目录'
+    emptyRoot.order = -1
+    emptyRoot.children = []
+
+    const plan = buildPagePlan(
+      createProjectFixture({ outlineNodes: [firstRoot, emptyRoot, secondRoot] }),
+    )
+
+    expect(plan.outlineSequenceLabels[emptyRoot.id]).toBeUndefined()
+    expect(plan.outputOutlineNodeIds).not.toContain(emptyRoot.id)
+    expect(plan.outlineSequenceLabels[secondRoot.id]).toBe('一、')
+    expect(plan.outlineSequenceLabels[firstRoot.id]).toBe('二、')
+    expect(
+      plan.tocEntries.filter((entry) => entry.kind === 'level1').map((entry) => entry.title),
+    ).toEqual(['知识产权', '论文成果'])
   })
 
   it('封面和目录计入页码时从正文起始值向前编号', () => {

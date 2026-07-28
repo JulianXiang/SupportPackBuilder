@@ -200,6 +200,20 @@ button {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.outline-sequence {
+  margin-right: 4px;
+  color: inherit;
+  font-weight: 600;
+}
+.outline-output-tag {
+  flex: 0 0 auto;
+  margin: 0;
+  padding: 0 4px;
+  color: #87939f;
+  background: #f0f2f4;
+  font-size: 9px;
+  line-height: 16px;
+}
 .outline-count {
   min-width: 20px;
   padding: 0 5px;
@@ -412,19 +426,6 @@ button {
 }
 .generated-preview.cover strong {
   font-size: 17px;
-}
-.generated-preview.toc {
-  align-items: stretch;
-  justify-content: flex-start;
-  padding-top: 18%;
-}
-.generated-preview.toc::after {
-  content: '一、材料分类・・・・・・・・ 1\A　1. 支撑材料・・・・・・・・ 2\A二、其他材料・・・・・・・・ 8';
-  white-space: pre;
-  color: #536372;
-  font-size: 7px;
-  line-height: 2.2;
-  text-align: left;
 }
 .rotation-tag {
   position: absolute;

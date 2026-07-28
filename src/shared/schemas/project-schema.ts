@@ -5,7 +5,9 @@ import {
 } from '../constants/document.js'
 
 export const AssetStorageModeSchema = z.enum(['copy', 'reference'])
-export const SourceTypeSchema = z.enum(['pdf', 'image', 'imageCollection'])
+export const SourceTypeSchema = z.enum(['pdf', 'image', 'imageCollection', 'office'])
+export const OfficeFormatSchema = z.enum(['docx', 'pptx', 'xlsx'])
+export const ConversionSnapshotStatusSchema = z.enum(['ready', 'stale', 'error'])
 export const ValidationStatusSchema = z.enum([
   'valid',
   'warning',
@@ -29,6 +31,20 @@ export const ValidationMessageSchema = z.object({
   suggestion: z.string().max(1000).optional(),
 })
 
+export const OfficeConversionSchema = z.object({
+  adapterId: z.literal('libreoffice'),
+  engineVersion: z.string().min(1).max(100),
+  officeFormat: OfficeFormatSchema,
+  pdfStoredPath: z.string().min(1).max(4096),
+  sourceFileHash: z.string().regex(/^[a-f0-9]{64}$/i),
+  fileHash: z.string().regex(/^[a-f0-9]{64}$/i),
+  fileSize: z.number().int().positive(),
+  pageCount: z.number().int().positive(),
+  convertedAt: z.iso.datetime(),
+  snapshotStatus: ConversionSnapshotStatusSchema,
+  warnings: z.array(z.string().min(1).max(1000)).max(100),
+})
+
 export const MaterialSourceSchema = z.object({
   id: z.uuid(),
   sourcePath: z.string().min(1),
@@ -42,6 +58,7 @@ export const MaterialSourceSchema = z.object({
   width: z.number().positive().optional(),
   height: z.number().positive().optional(),
   exifOrientation: z.number().int().min(1).max(8).optional(),
+  conversion: OfficeConversionSchema.optional(),
 })
 
 export const MaterialSchema = z
@@ -86,6 +103,26 @@ export const MaterialSchema = z
         code: 'custom',
         path: ['sourceItems'],
         message: '单文件材料必须且只能包含一个来源文件。',
+      })
+    }
+    if (
+      material.sourceType === 'office' &&
+      material.sourceItems.some((source) => !source.conversion)
+    ) {
+      context.addIssue({
+        code: 'custom',
+        path: ['sourceItems'],
+        message: 'Office 材料必须包含可用的 PDF 转换快照。',
+      })
+    }
+    if (
+      material.sourceType !== 'office' &&
+      material.sourceItems.some((source) => source.conversion !== undefined)
+    ) {
+      context.addIssue({
+        code: 'custom',
+        path: ['sourceItems'],
+        message: '非 Office 材料不能包含 Office 转换快照。',
       })
     }
   })
@@ -181,7 +218,7 @@ export const ExportSettingsSchema = z.object({
 export const ProjectSchema = z
   .object({
     id: z.uuid(),
-    schemaVersion: z.literal(1),
+    schemaVersion: z.literal(2),
     title: z.string().min(1).max(300),
     ownerName: z.string().max(100),
     organization: z.string().max(200),
@@ -253,6 +290,8 @@ export const ProjectSchema = z
 
 export type Project = z.infer<typeof ProjectSchema>
 export type MaterialSource = z.infer<typeof MaterialSourceSchema>
+export type OfficeConversion = z.infer<typeof OfficeConversionSchema>
+export type OfficeFormat = z.infer<typeof OfficeFormatSchema>
 export type ValidationMessage = z.infer<typeof ValidationMessageSchema>
 export type Rotation = z.infer<typeof RotationSchema>
 export type ValidationStatus = z.infer<typeof ValidationStatusSchema>
@@ -279,7 +318,7 @@ export const createDefaultProject = (
 
   return ProjectSchema.parse({
     id: crypto.randomUUID(),
-    schemaVersion: 1,
+    schemaVersion: 2,
     title: input.title,
     ownerName,
     organization,

@@ -12,18 +12,24 @@ const Cover = ({ payload }: { payload: Extract<PrintPayload, { kind: 'cover' }> 
   <section className={`print-page cover-page ${payload.orientation}`}>
     <h1>{payload.title}</h1>
     <div className="cover-information">
-      <p>
-        <span>{'姓\u3000\u3000名'}</span>
-        <strong>{payload.ownerName || '—'}</strong>
-      </p>
-      <p>
-        <span>所属单位</span>
-        <strong>{payload.organization || '—'}</strong>
-      </p>
-      <p>
-        <span>材料用途</span>
-        <strong>{payload.purpose || '—'}</strong>
-      </p>
+      {payload.ownerName ? (
+        <p>
+          <span>{'姓\u3000\u3000名'}</span>
+          <strong>{payload.ownerName}</strong>
+        </p>
+      ) : null}
+      {payload.organization ? (
+        <p>
+          <span>所属单位</span>
+          <strong>{payload.organization}</strong>
+        </p>
+      ) : null}
+      {payload.purpose ? (
+        <p>
+          <span>材料用途</span>
+          <strong>{payload.purpose}</strong>
+        </p>
+      ) : null}
     </div>
     <time>{formatDate(payload.compiledDate)}</time>
   </section>
@@ -35,7 +41,7 @@ const Toc = ({ payload }: { payload: Extract<PrintPayload, { kind: 'toc' }> }) =
     <ol className="toc-list">
       {payload.entries.map((entry) => (
         <li className={`toc-entry level-${entry.level}`} key={entry.id}>
-          <span className="toc-title">{entry.title}</span>
+          <span className="toc-title">{entry.displayText}</span>
           <span className="toc-dots" aria-hidden="true" />
           <span className="toc-page-number">{entry.logicalPageNumber}</span>
         </li>

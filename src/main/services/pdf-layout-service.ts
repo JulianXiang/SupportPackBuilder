@@ -15,6 +15,12 @@ import {
   type PageMargins,
 } from '../../shared/utils/a4-layout.js'
 import { resolveMaterialSourcePath } from './project-service.js'
+import {
+  drawInlineHeadings,
+  layoutInlineHeadings,
+  type InlineHeadingLayout,
+} from './inline-heading-service.js'
+import type { PDFFont } from 'pdf-lib'
 
 export const targetPageSize = (
   orientation: Project['exportSettings']['targetOrientation'],
@@ -46,6 +52,15 @@ export const addPageMarkers = (
 ): void => {
   page.node.set(PDFName.of('SPackPageId'), PDFHexString.fromText(plannedPage.id))
   page.node.set(PDFName.of('SPackPageType'), PDFHexString.fromText(plannedPage.pageType))
+  if (plannedPage.materialId) {
+    page.node.set(PDFName.of('SPackMaterialId'), PDFHexString.fromText(plannedPage.materialId))
+  }
+  if (plannedPage.outlineNodeId) {
+    page.node.set(
+      PDFName.of('SPackOutlineNodeId'),
+      PDFHexString.fromText(plannedPage.outlineNodeId),
+    )
+  }
   page.node.set(
     PDFName.of('SPackInlineHeadings'),
     PDFHexString.fromText(JSON.stringify(plannedPage.inlineHeadings)),
@@ -159,6 +174,51 @@ export const appendImageContentPage = async (input: {
     height: placement.drawHeight,
   })
   return page
+}
+
+export const appendPlannedContentPage = async (input: {
+  targetDocument: PDFDocument
+  projectDirectory: string
+  plannedPage: PlannedPage
+  project: Project
+  sourceDocument?: PDFDocument
+  inlineHeadingFont?: PDFFont
+}): Promise<PDFPage> => {
+  const [pageWidth, pageHeight] = targetPageSize(input.project.exportSettings.targetOrientation)
+  const layoutPage = input.targetDocument.addPage([pageWidth, pageHeight])
+  const inlineHeadingLayout: InlineHeadingLayout | null =
+    input.inlineHeadingFont && input.plannedPage.inlineHeadings.length > 0
+      ? layoutInlineHeadings(layoutPage, input.plannedPage, input.project, input.inlineHeadingFont)
+      : null
+  input.targetDocument.removePage(input.targetDocument.getPageCount() - 1)
+
+  let outputPage: PDFPage
+  if (input.plannedPage.pageType === 'pdfContent') {
+    if (!input.sourceDocument) {
+      throw new Error(`PDF 页面“${input.plannedPage.displayTitle}”缺少已解析的来源文档。`)
+    }
+    outputPage = await appendPdfContentPage({
+      targetDocument: input.targetDocument,
+      sourceDocument: input.sourceDocument,
+      plannedPage: input.plannedPage,
+      project: input.project,
+      ...(inlineHeadingLayout ? { contentMargins: inlineHeadingLayout.contentMargins } : {}),
+    })
+  } else if (input.plannedPage.pageType === 'imageContent') {
+    outputPage = await appendImageContentPage({
+      targetDocument: input.targetDocument,
+      projectDirectory: input.projectDirectory,
+      plannedPage: input.plannedPage,
+      project: input.project,
+      ...(inlineHeadingLayout ? { contentMargins: inlineHeadingLayout.contentMargins } : {}),
+    })
+  } else {
+    throw new Error(`页面“${input.plannedPage.displayTitle}”不是材料内容页。`)
+  }
+  if (inlineHeadingLayout && input.inlineHeadingFont) {
+    drawInlineHeadings(outputPage, inlineHeadingLayout, input.inlineHeadingFont)
+  }
+  return outputPage
 }
 
 export const appendGeneratedPage = async (input: {

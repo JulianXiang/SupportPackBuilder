@@ -34,10 +34,12 @@ import type {
   Rotation,
 } from '../../../../shared/schemas/project-schema.js'
 import { parsePageRange } from '../../../../shared/utils/page-range.js'
+import { stripSequencePrefix } from '../../../../shared/utils/sequence-label.js'
 import type { Selection } from '../../stores/project-store.js'
 import { findMaterial, findOutlineNode } from '../../utils/project.js'
 
 type CommitInputProps = {
+  id?: string
   value: string
   multiline?: boolean
   maxLength?: number
@@ -48,6 +50,7 @@ const CommitInput = (props: CommitInputProps): React.JSX.Element => {
   const [value, setValue] = useState(props.value)
   useEffect(() => setValue(props.value), [props.value])
   const common = {
+    id: props.id,
     value,
     maxLength: props.maxLength,
     onChange: (event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
@@ -70,6 +73,7 @@ type InspectorPanelProps = {
   onImportPortable: () => void
   onClearCache: () => void
   onRelocate: (materialId: string, sourceId: string) => void
+  onReconvertOffice: (materialId: string) => void
 }
 
 const PanelTitle = ({
@@ -113,54 +117,54 @@ const ProjectInspector = ({
     <PanelTitle title="项目属性" subtitle="封面基础信息与存储方式" />
     <div className="inspector-scroll">
       <Form layout="vertical" size="small">
-        <Form.Item label="项目名称">
+        <Form.Item label="项目名称" htmlFor="project-title">
           <CommitInput
+            id="project-title"
             value={project.title}
             maxLength={300}
             onCommit={(value) =>
               value &&
               onMutate((draft) => {
                 draft.title = value
-                draft.coverSettings.title = value
                 draft.exportSettings.metadata.title = value
               })
             }
           />
         </Form.Item>
-        <Form.Item label="姓名">
+        <Form.Item label="姓名" htmlFor="project-owner-name">
           <CommitInput
+            id="project-owner-name"
             value={project.ownerName}
             maxLength={100}
             onCommit={(value) =>
               onMutate((draft) => {
                 draft.ownerName = value
-                draft.coverSettings.ownerName = value
                 draft.exportSettings.metadata.author = value
               })
             }
           />
         </Form.Item>
-        <Form.Item label="单位">
+        <Form.Item label="单位" htmlFor="project-organization">
           <CommitInput
+            id="project-organization"
             value={project.organization}
             maxLength={200}
             onCommit={(value) =>
               onMutate((draft) => {
                 draft.organization = value
-                draft.coverSettings.organization = value
               })
             }
           />
         </Form.Item>
-        <Form.Item label="用途">
+        <Form.Item label="用途" htmlFor="project-purpose">
           <CommitInput
+            id="project-purpose"
             value={project.purpose}
             multiline
             maxLength={500}
             onCommit={(value) =>
               onMutate((draft) => {
                 draft.purpose = value
-                draft.coverSettings.purpose = value
                 draft.exportSettings.metadata.subject = value
               })
             }
@@ -174,7 +178,6 @@ const ProjectInspector = ({
               date &&
               onMutate((draft) => {
                 draft.compiledDate = date.format('YYYY-MM-DD')
-                draft.coverSettings.compiledDate = draft.compiledDate
               })
             }
           />
@@ -234,6 +237,70 @@ const ProjectInspector = ({
           }
         />
       </div>
+      <Form layout="vertical" size="small">
+        <Form.Item label="封面标题" htmlFor="cover-title" required>
+          <CommitInput
+            id="cover-title"
+            value={project.coverSettings.title}
+            maxLength={300}
+            onCommit={(value) =>
+              value &&
+              onMutate((draft) => {
+                draft.coverSettings.title = value
+              })
+            }
+          />
+        </Form.Item>
+        <Form.Item label="封面姓名" htmlFor="cover-owner-name">
+          <CommitInput
+            id="cover-owner-name"
+            value={project.coverSettings.ownerName}
+            maxLength={100}
+            onCommit={(value) =>
+              onMutate((draft) => {
+                draft.coverSettings.ownerName = value
+              })
+            }
+          />
+        </Form.Item>
+        <Form.Item label="封面单位" htmlFor="cover-organization">
+          <CommitInput
+            id="cover-organization"
+            value={project.coverSettings.organization}
+            maxLength={200}
+            onCommit={(value) =>
+              onMutate((draft) => {
+                draft.coverSettings.organization = value
+              })
+            }
+          />
+        </Form.Item>
+        <Form.Item label="封面用途" htmlFor="cover-purpose">
+          <CommitInput
+            id="cover-purpose"
+            value={project.coverSettings.purpose}
+            multiline
+            maxLength={500}
+            onCommit={(value) =>
+              onMutate((draft) => {
+                draft.coverSettings.purpose = value
+              })
+            }
+          />
+        </Form.Item>
+        <Form.Item label="封面日期">
+          <DatePicker
+            value={dayjs(project.coverSettings.compiledDate)}
+            style={{ width: '100%' }}
+            onChange={(date) =>
+              date &&
+              onMutate((draft) => {
+                draft.coverSettings.compiledDate = date.format('YYYY-MM-DD')
+              })
+            }
+          />
+        </Form.Item>
+      </Form>
       <div className="switch-row">
         <span>生成目录</span>
         <Switch
@@ -369,7 +436,7 @@ const OutlineInspector = ({
               value &&
               onMutate((draft) => {
                 const found = findOutlineNode(draft, node.id)
-                if (found) found.node.title = value
+                if (found) found.node.title = stripSequencePrefix(value, node.level)
               })
             }
           />
@@ -428,12 +495,14 @@ const MaterialInspector = ({
   onMutate,
   onSelect,
   onRelocate,
+  onReconvertOffice,
 }: {
   project: Project
   material: Material
   onMutate: InspectorPanelProps['onMutate']
   onSelect: InspectorPanelProps['onSelect']
   onRelocate: InspectorPanelProps['onRelocate']
+  onReconvertOffice: InspectorPanelProps['onReconvertOffice']
 }): React.JSX.Element => {
   const { modal } = App.useApp()
   const [rangeValue, setRangeValue] = useState(material.selectedPageRanges)
@@ -442,7 +511,9 @@ const MaterialInspector = ({
     [material.id, material.selectedPageRanges],
   )
   const parsedRange =
-    material.sourceType === 'pdf' ? parsePageRange(rangeValue, material.pageCount) : null
+    material.sourceType === 'pdf' || material.sourceType === 'office'
+      ? parsePageRange(rangeValue, material.pageCount)
+      : null
   const deleteMaterial = (): void => {
     modal.confirm({
       title: `删除材料“${material.title}”？`,
@@ -479,7 +550,7 @@ const MaterialInspector = ({
                 value &&
                 onMutate((draft) => {
                   const found = findMaterial(draft, material.id)
-                  if (found) found.material.title = value
+                  if (found) found.material.title = stripSequencePrefix(value, 3)
                 })
               }
             />
@@ -531,7 +602,7 @@ const MaterialInspector = ({
               }
             />
           </Form.Item>
-          {material.sourceType === 'pdf' && (
+          {(material.sourceType === 'pdf' || material.sourceType === 'office') && (
             <Form.Item
               label="PDF 页码范围"
               validateStatus={
@@ -611,12 +682,24 @@ const MaterialInspector = ({
               children:
                 material.sourceType === 'pdf'
                   ? 'PDF'
-                  : material.sourceType === 'imageCollection'
-                    ? '图片集合'
-                    : '图片',
+                  : material.sourceType === 'office'
+                    ? `Office（${material.sourceItems[0]?.conversion?.officeFormat.toUpperCase() ?? '未知'}）`
+                    : material.sourceType === 'imageCollection'
+                      ? '图片集合'
+                      : '图片',
             },
             { key: 'name', label: '原始文件', children: material.originalFileName },
             { key: 'pages', label: '原始页数', children: material.pageCount },
+            {
+              key: 'conversion',
+              label: '转换快照',
+              children:
+                material.sourceType === 'office'
+                  ? `${material.sourceItems[0]?.conversion?.engineVersion ?? '不可用'} · ${
+                      material.sourceItems[0]?.conversion?.pageCount ?? 0
+                    } 页 · ${material.sourceItems[0]?.conversion?.snapshotStatus ?? 'error'}`
+                  : '不适用',
+            },
             {
               key: 'size',
               label: '文件大小',
@@ -674,6 +757,11 @@ const MaterialInspector = ({
             </Button>
           ))}
         </Space>
+        {material.sourceType === 'office' ? (
+          <Button icon={<RollbackOutlined />} onClick={() => onReconvertOffice(material.id)}>
+            重新转换 Office 快照
+          </Button>
+        ) : null}
         {material.removedPages.length > 0 && (
           <Alert
             className="validation-alert"
@@ -836,6 +924,7 @@ export const InspectorPanel = (props: InspectorPanelProps): React.JSX.Element =>
             onMutate={props.onMutate}
             onSelect={props.onSelect}
             onRelocate={props.onRelocate}
+            onReconvertOffice={props.onReconvertOffice}
           />
         </aside>
       )

@@ -6,6 +6,7 @@ import {
   copyAssetIntoProject,
   createProjectDirectory,
   loadProject,
+  migrateProjectData,
   writeProjectAtomically,
 } from '../../src/main/services/project-service.js'
 import { validateProjectFiles } from '../../src/main/services/validation-service.js'
@@ -57,6 +58,39 @@ describe('项目安全持久化', () => {
     expect(ProjectSchema.parse(JSON.parse(mainRaw) as unknown).title).toBe('修改后的项目')
     expect(ProjectSchema.parse(JSON.parse(backupRaw) as unknown).title).toBe(first.title)
     expect(second.title).toBe('修改后的项目')
+  })
+
+  it('把 v1 手工序号迁移为 v2 纯标题，并在保存时保留原始 v1 备份', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'spack-migrate-v1-'))
+    temporaryDirectories.push(directory)
+    const legacy = structuredClone(createProjectFixture()) as unknown as Record<string, unknown>
+    legacy.schemaVersion = 1
+    const roots = legacy.outlineNodes as Record<string, unknown>[]
+    const firstRoot = roots[0]
+    if (!firstRoot) throw new Error('测试目录结构无效。')
+    firstRoot.title = '一、论文成果'
+    const children = firstRoot.children as Record<string, unknown>[]
+    const firstChild = children[0]
+    if (!firstChild) throw new Error('测试二级目录结构无效。')
+    firstChild.title = '（一） 第一作者论文'
+    const materials = firstChild.materials as Record<string, unknown>[]
+    const firstMaterial = materials[0]
+    if (!firstMaterial) throw new Error('测试材料结构无效。')
+    firstMaterial.title = '1. 测试材料'
+    await writeFile(join(directory, 'project.json'), `${JSON.stringify(legacy, null, 2)}\n`)
+
+    const loaded = await loadProject(directory)
+    expect(loaded.project.schemaVersion).toBe(2)
+    expect(loaded.project.outlineNodes[0]?.title).toBe('论文成果')
+    expect(loaded.project.outlineNodes[0]?.children[0]?.title).toBe('第一作者论文')
+    expect(loaded.project.outlineNodes[0]?.children[0]?.materials[0]?.title).toBe('测试材料')
+
+    await writeProjectAtomically(directory, loaded.project)
+    const backup = JSON.parse(
+      await readFile(join(directory, 'project.json.bak'), 'utf8'),
+    ) as Record<string, unknown>
+    expect(backup.schemaVersion).toBe(1)
+    expect(migrateProjectData(backup).schemaVersion).toBe(2)
   })
 
   it('复制资产时保留来源时间戳，避免导入后立即误报文件变化', async () => {

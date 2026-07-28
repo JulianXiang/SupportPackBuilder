@@ -45,6 +45,9 @@ const portableAssetPath = (source: MaterialSource): string => {
   return posix.join('assets', `${source.id}-${base}${extension}`)
 }
 
+const portableConversionPath = (source: MaterialSource): string =>
+  posix.join('assets', 'conversions', `${source.id}-converted.pdf`)
+
 const normalizePortableProject = (
   session: ProjectSession,
 ): { project: Project; assets: Map<string, string> } => {
@@ -60,6 +63,16 @@ const normalizePortableProject = (
       assets.set(archivePath, sourcePath)
       source.sourcePath = archivePath
       source.storedPath = archivePath
+      if (source.conversion) {
+        const snapshotPath = resolve(session.projectDirectory, source.conversion.pdfStoredPath)
+        const snapshotRelative = relative(session.projectDirectory, snapshotPath)
+        if (snapshotRelative.startsWith('..') || isAbsolute(snapshotRelative)) {
+          throw new Error(`材料《${material.title}》的 Office 转换快照路径越界。`)
+        }
+        const conversionArchivePath = portableConversionPath(source)
+        assets.set(conversionArchivePath, snapshotPath)
+        source.conversion.pdfStoredPath = conversionArchivePath
+      }
     }
     const primary = material.sourceItems[0]
     if (primary) {
@@ -222,6 +235,20 @@ const assertExtractedProjectIsPortable = async (
       const sourceStat = await stat(absolutePath)
       if (!sourceStat.isFile()) {
         throw new Error(`材料《${material.title}》的资产文件不存在。`)
+      }
+      if (source.conversion) {
+        if (!source.conversion.pdfStoredPath.startsWith('assets/conversions/')) {
+          throw new Error(`材料《${material.title}》的 Office 转换快照不在便携包中。`)
+        }
+        const snapshotPath = resolve(temporaryDirectory, source.conversion.pdfStoredPath)
+        const snapshotRelative = relative(temporaryDirectory, snapshotPath)
+        if (snapshotRelative.startsWith('..') || isAbsolute(snapshotRelative)) {
+          throw new Error(`材料《${material.title}》的 Office 转换快照路径越界。`)
+        }
+        const snapshotStat = await stat(snapshotPath)
+        if (!snapshotStat.isFile() || snapshotStat.size <= 0) {
+          throw new Error(`材料《${material.title}》的 Office 转换快照不存在。`)
+        }
       }
     }
   }

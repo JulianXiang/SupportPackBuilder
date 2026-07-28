@@ -11,9 +11,10 @@ import {
   utimes,
 } from 'node:fs/promises'
 import { constants as fsConstants } from 'node:fs'
-import { basename, dirname, extname, isAbsolute, join, relative, resolve } from 'node:path'
+import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { ProjectSchema, type Material, type Project } from '../../shared/schemas/project-schema.js'
 import { sanitizeFileName } from '../../shared/utils/file-name.js'
+import { stripSequencePrefix } from '../../shared/utils/sequence-label.js'
 import { appLog } from './log-service.js'
 
 export const PROJECT_FILE_NAME = 'project.json'
@@ -54,6 +55,7 @@ const normalizeOrders = (project: Project): Project => {
 const ensureProjectDirectories = async (projectDirectory: string): Promise<void> => {
   await Promise.all([
     mkdir(join(projectDirectory, 'assets'), { recursive: true }),
+    mkdir(join(projectDirectory, 'assets', 'conversions'), { recursive: true }),
     mkdir(join(projectDirectory, 'cache', 'thumbnails'), { recursive: true }),
     mkdir(join(projectDirectory, 'cache', 'previews'), { recursive: true }),
     mkdir(join(projectDirectory, 'temp'), { recursive: true }),
@@ -66,12 +68,43 @@ export const migrateProjectData = (data: unknown): Project => {
     throw new Error('项目配置不是有效的 JSON 对象。')
   }
   const schemaVersion = (data as { schemaVersion?: unknown }).schemaVersion
-  if (schemaVersion === 1) return ProjectSchema.parse(data)
-  if (schemaVersion === undefined || schemaVersion === 0) {
-    const legacy = data as Record<string, unknown>
+  if (schemaVersion === 2) return ProjectSchema.parse(data)
+  if (schemaVersion === 1 || schemaVersion === undefined || schemaVersion === 0) {
+    const legacy = structuredClone(data) as Record<string, unknown>
+    const rawNodes: unknown[] = Array.isArray(legacy.outlineNodes) ? legacy.outlineNodes : []
+    legacy.outlineNodes = rawNodes.map((rawNode) => {
+      if (!rawNode || typeof rawNode !== 'object') return rawNode
+      const node = rawNode as Record<string, unknown>
+      const rawChildren: unknown[] = Array.isArray(node.children) ? node.children : []
+      return {
+        ...node,
+        title: typeof node.title === 'string' ? stripSequencePrefix(node.title, 1) : node.title,
+        children: rawChildren.map((rawChild) => {
+          if (!rawChild || typeof rawChild !== 'object') return rawChild
+          const child = rawChild as Record<string, unknown>
+          const rawMaterials: unknown[] = Array.isArray(child.materials) ? child.materials : []
+          return {
+            ...child,
+            title:
+              typeof child.title === 'string' ? stripSequencePrefix(child.title, 2) : child.title,
+            materials: rawMaterials.map((rawMaterial) => {
+              if (!rawMaterial || typeof rawMaterial !== 'object') return rawMaterial
+              const material = rawMaterial as Record<string, unknown>
+              return {
+                ...material,
+                title:
+                  typeof material.title === 'string'
+                    ? stripSequencePrefix(material.title, 3)
+                    : material.title,
+              }
+            }),
+          }
+        }),
+      }
+    })
     return ProjectSchema.parse({
       ...legacy,
-      schemaVersion: 1,
+      schemaVersion: 2,
       projectDirectory: '.',
     })
   }
@@ -200,7 +233,6 @@ export const duplicateProject = async (
     updatedAt: new Date().toISOString(),
     coverSettings: {
       ...session.project.coverSettings,
-      title: newTitle,
     },
     exportSettings: {
       ...session.project.exportSettings,
@@ -243,6 +275,28 @@ export const resolveMaterialSourcePath = (
   return source.sourcePath
 }
 
+export const resolveMaterialContentPath = (
+  projectDirectory: string,
+  material: Material,
+  sourceId: string,
+): string => {
+  const source = material.sourceItems.find((candidate) => candidate.id === sourceId)
+  if (!source) throw new Error(`材料“${material.title}”缺少来源文件。`)
+  if (material.sourceType !== 'office') {
+    return resolveMaterialSourcePath(projectDirectory, material, sourceId)
+  }
+  const snapshotPath = source.conversion?.pdfStoredPath
+  if (!snapshotPath) {
+    throw new Error(`Office 材料“${material.title}”缺少 PDF 转换快照。`)
+  }
+  const resolved = resolve(projectDirectory, snapshotPath)
+  const relativePath = relative(projectDirectory, resolved)
+  if (relativePath.startsWith('..') || isAbsolute(relativePath)) {
+    throw new Error(`Office 材料“${material.title}”的转换快照路径越界。`)
+  }
+  return resolved
+}
+
 export const clearProjectCache = async (projectDirectory: string): Promise<void> => {
   const cacheDirectory = join(projectDirectory, 'cache')
   await rm(cacheDirectory, { recursive: true, force: true })
@@ -264,6 +318,62 @@ export const copyAssetIntoProject = async (
   await utimes(tempPath, sourceStat.atime, sourceStat.mtime)
   await rename(tempPath, finalPath)
   return relativePath
+}
+
+export const copyConversionSnapshotIntoProject = async (
+  projectDirectory: string,
+  sourcePdfPath: string,
+  sourceId: string,
+  originalFileName: string,
+): Promise<string> => {
+  const safeBase = sanitizeFileName(
+    basename(originalFileName, extname(originalFileName)),
+    'office-material',
+  )
+  const relativePath = join('assets', 'conversions', `${sourceId}-${safeBase}.pdf`)
+  const finalPath = join(projectDirectory, relativePath)
+  const tempPath = `${finalPath}.${crypto.randomUUID()}.tmp`
+  await mkdir(dirname(finalPath), { recursive: true })
+  try {
+    await copyFile(sourcePdfPath, tempPath, fsConstants.COPYFILE_EXCL)
+    await rename(tempPath, finalPath)
+    return relativePath
+  } catch (error) {
+    await rm(tempPath, { force: true }).catch(() => undefined)
+    throw error
+  }
+}
+
+export const replaceConversionSnapshotAtomically = async (
+  projectDirectory: string,
+  relativeSnapshotPath: string,
+  sourcePdfPath: string,
+): Promise<void> => {
+  const finalPath = resolve(projectDirectory, relativeSnapshotPath)
+  const relativePath = relative(projectDirectory, finalPath)
+  if (
+    relativePath.startsWith('..') ||
+    isAbsolute(relativePath) ||
+    !relativePath.startsWith(`${join('assets', 'conversions')}${sep}`)
+  ) {
+    throw new Error('Office 转换快照路径无效。')
+  }
+  const temporaryPath = `${finalPath}.${crypto.randomUUID()}.tmp`
+  const backupPath = `${finalPath}.${crypto.randomUUID()}.bak`
+  await copyFile(sourcePdfPath, temporaryPath, fsConstants.COPYFILE_EXCL)
+  const hasOriginal = await access(finalPath, fsConstants.F_OK).then(
+    () => true,
+    () => false,
+  )
+  if (hasOriginal) await rename(finalPath, backupPath)
+  try {
+    await rename(temporaryPath, finalPath)
+    await rm(backupPath, { force: true })
+  } catch (error) {
+    await rm(temporaryPath, { force: true }).catch(() => undefined)
+    if (hasOriginal) await rename(backupPath, finalPath).catch(() => undefined)
+    throw error
+  }
 }
 
 export const checkProjectWriteAccess = async (projectDirectory: string): Promise<void> => {

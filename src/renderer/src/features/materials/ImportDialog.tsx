@@ -127,7 +127,9 @@ export const ImportDialog = (props: ImportDialogProps): React.JSX.Element => {
                   <div className="table-subtext">
                     {row.sourceType === 'pdf'
                       ? `${row.pageCount} 页 PDF`
-                      : `${row.width ?? '?'}×${row.height ?? '?'} 图片`}{' '}
+                      : row.sourceType === 'office'
+                        ? `${row.pageCount} 页 ${row.officeFormat?.toUpperCase() ?? 'OFFICE'} 转换快照`
+                        : `${row.width ?? '?'}×${row.height ?? '?'} 图片`}{' '}
                     · {(row.fileSize / 1024 / 1024).toFixed(2)} MB
                   </div>
                 </div>

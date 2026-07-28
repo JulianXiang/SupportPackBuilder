@@ -7,6 +7,7 @@ import type {
 } from '../schemas/page-plan-schema.js'
 import type { Material, OutlineNode, Project, Rotation } from '../schemas/project-schema.js'
 import { parsePageRange } from './page-range.js'
+import { formatSequenceLabel, formatSequencedTitle } from './sequence-label.js'
 
 const sortByOrder = <T extends { order: number; id: string }>(values: T[]): T[] =>
   [...values].sort((left, right) => left.order - right.order || left.id.localeCompare(right.id))
@@ -39,71 +40,109 @@ const pageNumberLabel = (
   }
 }
 
-const getSelectedSourcePages = (
-  material: Material,
-): {
-  pages: {
-    sourceId: string
-    sourceFile: string
-    pageIndex: number
-    sourcePageId: string
-    rotation: Rotation
-    pageType: 'pdfContent' | 'imageContent'
-  }[]
+type SelectedSourcePage = {
+  sourceId: string
+  sourceFile: string
+  pageIndex: number
+  sourcePageId: string
+  rotation: Rotation
+  pageType: 'pdfContent' | 'imageContent'
+}
+
+type SelectedSourcePages = {
+  pages: SelectedSourcePage[]
   errors: ValidationIssue[]
   warnings: ValidationIssue[]
-} => {
+}
+
+const issue = (
+  material: Material,
+  code: string,
+  severity: ValidationIssue['severity'],
+  message: string,
+): ValidationIssue => ({
+  code,
+  severity,
+  message,
+  outlineNodeId: material.outlineNodeId,
+  materialId: material.id,
+})
+
+const getSelectedSourcePages = (material: Material): SelectedSourcePages => {
   const errors: ValidationIssue[] = []
   const warnings: ValidationIssue[] = []
-  const candidates: {
-    sourceId: string
-    sourceFile: string
-    pageIndex: number
-    sourcePageId: string
-    rotation: Rotation
-    pageType: 'pdfContent' | 'imageContent'
-  }[] = []
+  const candidates: SelectedSourcePage[] = []
 
-  if (material.sourceType === 'pdf') {
+  if (material.sourceType === 'pdf' || material.sourceType === 'office') {
     const source = material.sourceItems[0]
     if (!source) {
-      errors.push({
-        code: 'missing-source',
-        severity: 'error',
-        message: `材料“${material.title}”缺少来源文件记录。`,
-        outlineNodeId: material.outlineNodeId,
-        materialId: material.id,
-      })
+      errors.push(
+        issue(material, 'missing-source', 'error', `材料“${material.title}”缺少来源文件记录。`),
+      )
       return { pages: [], errors, warnings }
     }
-    const parsed = parsePageRange(material.selectedPageRanges, source.pageCount)
+    const conversion = material.sourceType === 'office' ? source.conversion : undefined
+    if (material.sourceType === 'office' && !conversion) {
+      errors.push(
+        issue(
+          material,
+          'office-snapshot-missing',
+          'error',
+          `Office 材料“${material.title}”缺少 PDF 转换快照，请重新转换后再导出。`,
+        ),
+      )
+      return { pages: [], errors, warnings }
+    }
+    if (conversion?.snapshotStatus === 'error') {
+      errors.push(
+        issue(
+          material,
+          'office-snapshot-error',
+          'error',
+          `Office 材料“${material.title}”的转换快照不可用，请重新转换。`,
+        ),
+      )
+    } else if (conversion?.snapshotStatus === 'stale') {
+      warnings.push(
+        issue(
+          material,
+          'office-snapshot-stale',
+          'warning',
+          `Office 材料“${material.title}”的原件已变化，当前仍使用上一次转换快照。`,
+        ),
+      )
+    }
+    const pageCount = conversion?.pageCount ?? source.pageCount
+    const parsed = parsePageRange(material.selectedPageRanges, pageCount)
     if (!parsed.success) {
       errors.push(
-        ...parsed.errors.map((error) => ({
-          code: `page-range-${error.code}`,
-          severity: 'error' as const,
-          message: `材料“${material.title}”：${error.message}`,
-          outlineNodeId: material.outlineNodeId,
-          materialId: material.id,
-        })),
+        ...parsed.errors.map((error) =>
+          issue(
+            material,
+            `page-range-${error.code}`,
+            'error',
+            `材料“${material.title}”：${error.message}`,
+          ),
+        ),
       )
       return { pages: [], errors, warnings }
     }
     warnings.push(
-      ...parsed.warnings.map((warning) => ({
-        code: `page-range-${warning.code}`,
-        severity: 'warning' as const,
-        message: `材料“${material.title}”：${warning.message}`,
-        outlineNodeId: material.outlineNodeId,
-        materialId: material.id,
-      })),
+      ...parsed.warnings.map((warning) =>
+        issue(
+          material,
+          `page-range-${warning.code}`,
+          'warning',
+          `材料“${material.title}”：${warning.message}`,
+        ),
+      ),
     )
     parsed.pages.forEach((page) => {
       const pageIndex = page - 1
       const id = sourcePageId(source.id, pageIndex)
       candidates.push({
         sourceId: source.id,
-        sourceFile: source.storedPath ?? source.sourcePath,
+        sourceFile: conversion?.pdfStoredPath ?? source.storedPath ?? source.sourcePath,
         pageIndex,
         sourcePageId: id,
         rotation: material.rotationByPage[id] ?? 0,
@@ -125,7 +164,7 @@ const getSelectedSourcePages = (
   }
 
   const byId = new Map(candidates.map((candidate) => [candidate.sourcePageId, candidate]))
-  const ordered: typeof candidates = []
+  const ordered: SelectedSourcePage[] = []
   const used = new Set<string>()
   material.pageOrder.forEach((id) => {
     const candidate = byId.get(id)
@@ -159,7 +198,54 @@ export const buildPagePlan = (project: Project, options: PlanBuildOptions = {}):
   const pages: PlannedPage[] = []
   const errors: ValidationIssue[] = []
   const warnings: ValidationIssue[] = []
+  const selectedPagesByMaterial = new Map<string, SelectedSourcePages>()
+  const outputMaterialIds = new Set<string>()
+  const outputOutlineNodeIds = new Set<string>()
+  const outlineSequenceLabels: Record<string, string> = {}
+  const materialSequenceLabels: Record<string, string> = {}
   const renderedInlineNodeHeadings = new Set<string>()
+
+  const sortedRoots = sortByOrder(project.outlineNodes)
+
+  for (const root of sortedRoots) {
+    if (!root.enabled) continue
+    for (const child of sortByOrder(root.children)) {
+      if (!child.enabled) continue
+      for (const material of sortByOrder(child.materials)) {
+        if (!material.enabled) continue
+        const selected = getSelectedSourcePages(material)
+        selectedPagesByMaterial.set(material.id, selected)
+        errors.push(...selected.errors)
+        warnings.push(...selected.warnings)
+        const hasTitlePage =
+          material.insertTitlePage && project.exportSettings.includeMaterialTitlePages
+        if (selected.pages.length > 0 || hasTitlePage) {
+          outputMaterialIds.add(material.id)
+          outputOutlineNodeIds.add(child.id)
+          outputOutlineNodeIds.add(root.id)
+        }
+      }
+    }
+  }
+
+  let rootSequenceIndex = 0
+  for (const root of sortedRoots) {
+    if (!outputOutlineNodeIds.has(root.id)) continue
+    outlineSequenceLabels[root.id] = formatSequenceLabel(1, rootSequenceIndex)
+    rootSequenceIndex += 1
+    let childSequenceIndex = 0
+    for (const child of sortByOrder(root.children)) {
+      if (!outputOutlineNodeIds.has(child.id)) continue
+      outlineSequenceLabels[child.id] = formatSequenceLabel(2, childSequenceIndex)
+      childSequenceIndex += 1
+      let materialSequenceIndex = 0
+      for (const material of sortByOrder(child.materials)) {
+        if (!outputMaterialIds.has(material.id)) continue
+        materialSequenceLabels[material.id] = formatSequenceLabel(3, materialSequenceIndex)
+        materialSequenceIndex += 1
+      }
+    }
+  }
 
   const pushGeneratedPage = (
     page: Omit<PlannedPage, 'physicalIndex' | 'logicalPageNumber' | 'printedPageLabel'>,
@@ -183,6 +269,7 @@ export const buildPagePlan = (project: Project, options: PlanBuildOptions = {}):
       sourcePageIndex: null,
       sourcePageId: null,
       displayTitle: project.coverSettings.title,
+      sequenceLabel: null,
       inlineHeadings: [],
       showPageNumber:
         project.pageNumberSettings.enabled &&
@@ -204,6 +291,7 @@ export const buildPagePlan = (project: Project, options: PlanBuildOptions = {}):
         sourcePageIndex: null,
         sourcePageId: null,
         displayTitle: '封面背面空白页',
+        sequenceLabel: null,
         inlineHeadings: [],
         showPageNumber: false,
         rotation: 0,
@@ -224,6 +312,7 @@ export const buildPagePlan = (project: Project, options: PlanBuildOptions = {}):
       sourcePageIndex: null,
       sourcePageId: null,
       displayTitle: `${project.tocSettings.title}${tocPageCount > 1 ? `（${index + 1}）` : ''}`,
+      sequenceLabel: null,
       inlineHeadings: [],
       showPageNumber:
         project.pageNumberSettings.enabled &&
@@ -236,111 +325,113 @@ export const buildPagePlan = (project: Project, options: PlanBuildOptions = {}):
     })
   }
 
-  const addNode = (
-    node: OutlineNode,
-    parentEnabled: boolean,
-    ancestors: OutlineNode[] = [],
-  ): void => {
-    if (!parentEnabled || !node.enabled) return
-    if (node.insertDividerPage && project.exportSettings.includeDividerPages) {
-      pushGeneratedPage({
-        id: `divider:${node.id}`,
-        pageType: 'divider',
-        outlineNodeId: node.id,
-        materialId: null,
-        sourceId: null,
-        sourceFile: null,
-        sourcePageIndex: null,
-        sourcePageId: null,
-        displayTitle: node.title,
-        inlineHeadings: [],
-        showPageNumber:
-          project.pageNumberSettings.enabled &&
-          project.exportSettings.addPageNumbers &&
-          project.pageNumberSettings.showOnDivider,
-        rotation: 0,
-        targetOrientation: project.exportSettings.targetOrientation,
-        validationStatus: 'valid',
-      })
-    }
-
-    sortByOrder(node.materials).forEach((material) => {
-      if (!material.enabled) return
-      if (material.insertTitlePage && project.exportSettings.includeMaterialTitlePages) {
-        pushGeneratedPage({
-          id: `material-title:${material.id}`,
-          pageType: 'materialTitle',
-          outlineNodeId: node.id,
-          materialId: material.id,
-          sourceId: null,
-          sourceFile: null,
-          sourcePageIndex: null,
-          sourcePageId: null,
-          displayTitle: material.title,
-          inlineHeadings: [],
-          showPageNumber:
-            project.pageNumberSettings.enabled &&
-            project.exportSettings.addPageNumbers &&
-            project.pageNumberSettings.showOnMaterialTitle,
-          rotation: 0,
-          targetOrientation: project.exportSettings.targetOrientation,
-          validationStatus: material.validationStatus,
-        })
-      }
-      const selected = getSelectedSourcePages(material)
-      errors.push(...selected.errors)
-      warnings.push(...selected.warnings)
-      selected.pages.forEach((sourcePage, sourcePageIndex) => {
-        const inlineHeadings: PlannedPage['inlineHeadings'] = []
-        if (sourcePageIndex === 0 && project.exportSettings.contentHeadingMode === 'firstPage') {
-          for (const headingNode of [...ancestors, node]) {
-            const hasStandaloneDivider =
-              headingNode.insertDividerPage && project.exportSettings.includeDividerPages
-            if (!hasStandaloneDivider && !renderedInlineNodeHeadings.has(headingNode.id)) {
-              inlineHeadings.push({
-                level: headingNode.level,
-                text: headingNode.title,
-              })
-              renderedInlineNodeHeadings.add(headingNode.id)
-            }
-          }
-          const hasStandaloneMaterialTitle =
-            material.insertTitlePage && project.exportSettings.includeMaterialTitlePages
-          if (!hasStandaloneMaterialTitle) {
-            inlineHeadings.push({
-              level: 3,
-              text: material.title,
-            })
-          }
-        }
-        pushGeneratedPage({
-          id: `content:${material.id}:${sourcePage.sourcePageId}`,
-          pageType: sourcePage.pageType,
-          outlineNodeId: node.id,
-          materialId: material.id,
-          sourceId: sourcePage.sourceId,
-          sourceFile: sourcePage.sourceFile,
-          sourcePageIndex: sourcePage.pageIndex,
-          sourcePageId: sourcePage.sourcePageId,
-          displayTitle: material.title,
-          inlineHeadings,
-          showPageNumber:
-            project.pageNumberSettings.enabled && project.exportSettings.addPageNumbers,
-          rotation: sourcePage.rotation,
-          targetOrientation: project.exportSettings.targetOrientation,
-          validationStatus: material.validationStatus,
-        })
-      })
-    })
-
-    sortByOrder(node.children).forEach((child) => {
-      addNode(child, true, [...ancestors, node])
+  const pushDivider = (node: OutlineNode): void => {
+    if (!node.insertDividerPage || !project.exportSettings.includeDividerPages) return
+    pushGeneratedPage({
+      id: `divider:${node.id}`,
+      pageType: 'divider',
+      outlineNodeId: node.id,
+      materialId: null,
+      sourceId: null,
+      sourceFile: null,
+      sourcePageIndex: null,
+      sourcePageId: null,
+      displayTitle: node.title,
+      sequenceLabel: outlineSequenceLabels[node.id] ?? null,
+      inlineHeadings: [],
+      showPageNumber:
+        project.pageNumberSettings.enabled &&
+        project.exportSettings.addPageNumbers &&
+        project.pageNumberSettings.showOnDivider,
+      rotation: 0,
+      targetOrientation: project.exportSettings.targetOrientation,
+      validationStatus: 'valid',
     })
   }
 
-  sortByOrder(project.outlineNodes).forEach((node) => {
-    addNode(node, true)
-  })
+  for (const root of sortedRoots) {
+    if (!outputOutlineNodeIds.has(root.id)) continue
+    pushDivider(root)
+    for (const child of sortByOrder(root.children)) {
+      if (!outputOutlineNodeIds.has(child.id)) continue
+      pushDivider(child)
+      for (const material of sortByOrder(child.materials)) {
+        if (!outputMaterialIds.has(material.id)) continue
+        const materialSequence = materialSequenceLabels[material.id] ?? ''
+        if (material.insertTitlePage && project.exportSettings.includeMaterialTitlePages) {
+          pushGeneratedPage({
+            id: `material-title:${material.id}`,
+            pageType: 'materialTitle',
+            outlineNodeId: child.id,
+            materialId: material.id,
+            sourceId: null,
+            sourceFile: null,
+            sourcePageIndex: null,
+            sourcePageId: null,
+            displayTitle: material.title,
+            sequenceLabel: materialSequence || null,
+            inlineHeadings: [],
+            showPageNumber:
+              project.pageNumberSettings.enabled &&
+              project.exportSettings.addPageNumbers &&
+              project.pageNumberSettings.showOnMaterialTitle,
+            rotation: 0,
+            targetOrientation: project.exportSettings.targetOrientation,
+            validationStatus: material.validationStatus,
+          })
+        }
+
+        const selected = selectedPagesByMaterial.get(material.id)
+        selected?.pages.forEach((sourcePage, pageIndex) => {
+          const inlineHeadings: PlannedPage['inlineHeadings'] = []
+          if (pageIndex === 0 && project.exportSettings.contentHeadingMode === 'firstPage') {
+            for (const headingNode of [root, child]) {
+              const hasStandaloneDivider =
+                headingNode.insertDividerPage && project.exportSettings.includeDividerPages
+              if (!hasStandaloneDivider && !renderedInlineNodeHeadings.has(headingNode.id)) {
+                const sequenceLabel = outlineSequenceLabels[headingNode.id] ?? ''
+                inlineHeadings.push({
+                  level: headingNode.level,
+                  title: headingNode.title,
+                  sequenceLabel,
+                  text: formatSequencedTitle(sequenceLabel, headingNode.title),
+                })
+                renderedInlineNodeHeadings.add(headingNode.id)
+              }
+            }
+            const hasStandaloneMaterialTitle =
+              material.insertTitlePage && project.exportSettings.includeMaterialTitlePages
+            if (!hasStandaloneMaterialTitle) {
+              inlineHeadings.push({
+                level: 3,
+                title: material.title,
+                sequenceLabel: materialSequence,
+                text: formatSequencedTitle(materialSequence, material.title),
+              })
+            }
+          }
+          pushGeneratedPage({
+            id: `content:${material.id}:${sourcePage.sourcePageId}`,
+            pageType: sourcePage.pageType,
+            outlineNodeId: child.id,
+            materialId: material.id,
+            sourceId: sourcePage.sourceId,
+            sourceFile: sourcePage.sourceFile,
+            sourcePageIndex: sourcePage.pageIndex,
+            sourcePageId: sourcePage.sourcePageId,
+            displayTitle: material.title,
+            sequenceLabel: materialSequence || null,
+            inlineHeadings,
+            showPageNumber:
+              project.pageNumberSettings.enabled && project.exportSettings.addPageNumbers,
+            rotation: sourcePage.rotation,
+            targetOrientation: project.exportSettings.targetOrientation,
+            validationStatus: material.validationStatus,
+          })
+        })
+      }
+    }
+  }
 
   const frontMatterCount = pages.filter((page) => {
     if (page.pageType === 'cover') return project.coverSettings.countInLogicalNumber
@@ -441,39 +532,60 @@ export const buildPagePlan = (project: Project, options: PlanBuildOptions = {}):
     if (start !== undefined) outlineStartPages[node.id] = start
     return start
   }
-  sortByOrder(project.outlineNodes).forEach(propagateOutlineStartPage)
+  sortedRoots.forEach(propagateOutlineStartPage)
 
   const tocEntries: TocEntry[] = []
-  const collectTocEntries = (node: OutlineNode): void => {
-    const start = outlineStartPages[node.id]
-    if (node.enabled && start !== undefined) {
+  for (const root of sortedRoots) {
+    if (!outputOutlineNodeIds.has(root.id)) continue
+    const rootStart = outlineStartPages[root.id]
+    const rootSequence = outlineSequenceLabels[root.id]
+    if (rootStart === undefined || !rootSequence) continue
+    tocEntries.push({
+      id: `toc-node:${root.id}`,
+      kind: 'level1',
+      level: 1,
+      title: root.title,
+      sequenceLabel: rootSequence,
+      displayText: formatSequencedTitle(rootSequence, root.title),
+      outlineNodeId: root.id,
+      materialId: null,
+      logicalPageNumber: rootStart,
+    })
+    for (const child of sortByOrder(root.children)) {
+      if (!outputOutlineNodeIds.has(child.id)) continue
+      const childStart = outlineStartPages[child.id]
+      const childSequence = outlineSequenceLabels[child.id]
+      if (childStart === undefined || !childSequence) continue
       tocEntries.push({
-        id: `toc-node:${node.id}`,
-        kind: node.level === 1 ? 'level1' : 'level2',
-        level: node.level,
-        title: node.title,
-        outlineNodeId: node.id,
+        id: `toc-node:${child.id}`,
+        kind: 'level2',
+        level: 2,
+        title: child.title,
+        sequenceLabel: childSequence,
+        displayText: formatSequencedTitle(childSequence, child.title),
+        outlineNodeId: child.id,
         materialId: null,
-        logicalPageNumber: start,
+        logicalPageNumber: childStart,
       })
-      sortByOrder(node.materials).forEach((material) => {
+      for (const material of sortByOrder(child.materials)) {
+        if (!outputMaterialIds.has(material.id)) continue
         const materialStart = materialStartPages[material.id]
-        if (material.enabled && materialStart !== undefined) {
-          tocEntries.push({
-            id: `toc-material:${material.id}`,
-            kind: 'material',
-            level: 3,
-            title: material.title,
-            outlineNodeId: node.id,
-            materialId: material.id,
-            logicalPageNumber: materialStart,
-          })
-        }
-      })
-      sortByOrder(node.children).forEach(collectTocEntries)
+        const materialSequence = materialSequenceLabels[material.id]
+        if (materialStart === undefined || !materialSequence) continue
+        tocEntries.push({
+          id: `toc-material:${material.id}`,
+          kind: 'material',
+          level: 3,
+          title: material.title,
+          sequenceLabel: materialSequence,
+          displayText: formatSequencedTitle(materialSequence, material.title),
+          outlineNodeId: child.id,
+          materialId: material.id,
+          logicalPageNumber: materialStart,
+        })
+      }
     }
   }
-  sortByOrder(project.outlineNodes).forEach(collectTocEntries)
 
   const sections: PlannedSection[] = []
   Object.entries(materialStartPages).forEach(([materialId, startLogicalPage]) => {
@@ -497,12 +609,19 @@ export const buildPagePlan = (project: Project, options: PlanBuildOptions = {}):
     projectId: project.id,
     revision,
     tocPageCount,
+    coverSettings: project.coverSettings,
+    tocSettings: project.tocSettings,
+    outlineSequenceLabels,
+    materialSequenceLabels,
+    tocEntries: tocEntries.map((entry) => [entry.id, entry.displayText, entry.logicalPageNumber]),
     pages: numberedPages.map((page) => [
       page.id,
+      page.displayTitle,
+      page.sequenceLabel,
       page.logicalPageNumber?.value,
       page.rotation,
       page.showPageNumber,
-      page.inlineHeadings.map((heading) => [heading.level, heading.text]),
+      page.inlineHeadings.map((heading) => [heading.level, heading.sequenceLabel, heading.title]),
     ]),
   })
 
@@ -518,6 +637,10 @@ export const buildPagePlan = (project: Project, options: PlanBuildOptions = {}):
     outlineStartPages,
     materialStartPages,
     materialEndPages,
+    outlineSequenceLabels,
+    materialSequenceLabels,
+    outputOutlineNodeIds: [...outputOutlineNodeIds],
+    outputMaterialIds: [...outputMaterialIds],
     tocEntries,
     errors,
     warnings,

@@ -5,6 +5,7 @@ import {
   Form,
   Input,
   Modal,
+  Progress,
   Select,
   Space,
   Typography,
@@ -13,7 +14,11 @@ import dayjs from 'dayjs'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { RecentProjectView } from '../../preload/api-types.js'
 import type { ExportPreflight, ExportProgress, ExportResult } from '../../shared/types/export.js'
-import type { ImportAnalysis, ImportCommitInput } from '../../shared/types/import.js'
+import type {
+  ImportAnalysis,
+  ImportAnalysisProgress,
+  ImportCommitInput,
+} from '../../shared/types/import.js'
 import { PROJECT_TEMPLATES } from '../../shared/templates/index.js'
 import { TopToolbar } from './components/TopToolbar.js'
 import { StatusBar } from './components/StatusBar.js'
@@ -52,6 +57,7 @@ export default function App(): React.JSX.Element {
   const [newProjectSaving, setNewProjectSaving] = useState(false)
   const [newProjectForm] = Form.useForm<NewProjectValues>()
   const [importAnalysis, setImportAnalysis] = useState<ImportAnalysis | null>(null)
+  const [importProgress, setImportProgress] = useState<ImportAnalysisProgress | null>(null)
   const [importCommitting, setImportCommitting] = useState(false)
   const [exportChecking, setExportChecking] = useState(false)
   const [exportStarting, setExportStarting] = useState(false)
@@ -248,12 +254,16 @@ export default function App(): React.JSX.Element {
   const analyzeImport = useCallback(
     async (kind: 'files' | 'folder'): Promise<void> => {
       if (!useProjectStore.getState().project) return
+      setImportProgress(null)
       const result =
         kind === 'files'
           ? await window.supportPack.import.selectFiles()
           : await window.supportPack.import.selectFolder()
-      if (!result.ok) showError('文件导入检查失败', result.error.message)
-      else if (result.value) setImportAnalysis(result.value)
+      setImportProgress(null)
+      if (!result.ok) {
+        if (!result.error.message.includes('取消'))
+          showError('文件导入检查失败', result.error.message)
+      } else if (result.value) setImportAnalysis(result.value)
     },
     [showError],
   )
@@ -269,6 +279,7 @@ export default function App(): React.JSX.Element {
     const current = useProjectStore.getState()
     current.replaceProjectFromMain(result.value.project, current.revision + 1, true)
     setImportAnalysis(null)
+    setImportProgress(null)
     void message.success(
       `已导入 ${result.value.importedMaterialIds.length} 项材料，替换 ${result.value.replacedMaterialIds.length} 项，跳过 ${result.value.skippedCount} 个文件。`,
     )
@@ -281,6 +292,14 @@ export default function App(): React.JSX.Element {
         else showError('拖入文件失败', result.error.message)
       }),
     [showError],
+  )
+
+  useEffect(
+    () =>
+      window.supportPack.import.onAnalysisProgress((progress) => {
+        setImportProgress(progress)
+      }),
+    [],
   )
 
   const checkExport = useCallback(async (): Promise<void> => {
@@ -493,6 +512,35 @@ export default function App(): React.JSX.Element {
     }
   }
 
+  const reconvertOffice = async (materialId: string, confirmPageReset = false): Promise<void> => {
+    const result = await window.supportPack.import.reconvertOffice({
+      materialId,
+      confirmPageReset,
+    })
+    if (!result.ok) {
+      showError('重新转换 Office 文件失败', result.error.message)
+      return
+    }
+    if (result.value.status === 'confirmation-required') {
+      modal.confirm({
+        title: '转换后的页数发生变化',
+        content: `原快照为 ${result.value.previousPageCount} 页，新快照为 ${result.value.pageCount} 页。继续后将重置页码范围、页面顺序、旋转和删除配置。`,
+        okText: '重新转换并重置页面编辑',
+        okButtonProps: { danger: true },
+        cancelText: '保留旧快照',
+        onOk: async () => await reconvertOffice(materialId, true),
+      })
+      return
+    }
+    const current = useProjectStore.getState()
+    current.replaceProjectFromMain(result.value.project, current.revision + 1, true)
+    void message.success(
+      result.value.pageCountChanged
+        ? `Office 快照已更新为 ${result.value.pageCount} 页，页面编辑配置已重置。`
+        : `Office 快照已更新，共 ${result.value.pageCount} 页，原页面编辑配置已保留。`,
+    )
+  }
+
   return (
     <div className="app-shell">
       <TopToolbar
@@ -515,6 +563,7 @@ export default function App(): React.JSX.Element {
           <div className="workspace-grid">
             <OutlinePanel
               project={store.project}
+              plan={store.pagePlan}
               selection={store.selection}
               onSelect={store.setSelection}
               onMutate={store.mutateProject}
@@ -544,6 +593,7 @@ export default function App(): React.JSX.Element {
               onImportPortable={() => void importPortable()}
               onClearCache={clearCache}
               onRelocate={(materialId, sourceId) => void relocateSource(materialId, sourceId)}
+              onReconvertOffice={(materialId) => void reconvertOffice(materialId)}
             />
           </div>
           <StatusBar
@@ -617,13 +667,43 @@ export default function App(): React.JSX.Element {
         </Form>
       </Modal>
 
+      <Modal
+        open={Boolean(importProgress && !importAnalysis && importProgress.percentage < 100)}
+        title="正在检查并转换导入文件"
+        footer={
+          importProgress?.cancellable ? (
+            <Button
+              danger
+              onClick={() => {
+                void window.supportPack.import.cancelAnalysis(importProgress.taskId)
+              }}
+            >
+              取消
+            </Button>
+          ) : null
+        }
+        closable={false}
+        mask={{ closable: false }}
+      >
+        <Typography.Paragraph>{importProgress?.stageLabel}</Typography.Paragraph>
+        <Typography.Text type="secondary">{importProgress?.currentFile}</Typography.Text>
+        <Progress percent={importProgress?.percentage ?? 0} />
+        <Typography.Text type="secondary">
+          已处理 {importProgress?.processedFiles ?? 0} / {importProgress?.totalFiles ?? 0} 个文件
+        </Typography.Text>
+      </Modal>
+
       {store.project && (
         <ImportDialog
           analysis={importAnalysis}
           project={store.project}
           targetOutlineNodeId={targetOutlineNodeId}
           committing={importCommitting}
-          onCancel={() => setImportAnalysis(null)}
+          onCancel={() => {
+            if (importAnalysis) void window.supportPack.import.cancelAnalysis(importAnalysis.token)
+            setImportAnalysis(null)
+            setImportProgress(null)
+          }}
           onCommit={(input) => void commitImport(input)}
         />
       )}
@@ -665,7 +745,8 @@ export default function App(): React.JSX.Element {
             尺寸、顺序与页码标记。
           </Typography.Paragraph>
           <Typography.Paragraph>
-            支持 PDF、JPG、JPEG、PNG 和 WebP。首版不支持 Office 转换、OCR、正文编辑、签章和云同步。
+            支持 PDF、JPG、JPEG、PNG、WebP，以及通过应用内置 LibreOffice 离线转换的
+            DOCX、PPTX、XLSX。暂不支持旧版 Office、宏文件、密码文件、OCR、正文编辑、签章和云同步。
           </Typography.Paragraph>
         </Space>
       </Modal>

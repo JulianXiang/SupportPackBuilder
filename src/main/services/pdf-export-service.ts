@@ -9,17 +9,12 @@ import {
   addPageMarkers,
   appendBlankPage,
   appendGeneratedPage,
-  appendImageContentPage,
-  appendPdfContentPage,
+  appendPlannedContentPage,
   loadSourcePdf,
 } from './pdf-layout-service.js'
-import {
-  drawInlineHeadings,
-  layoutInlineHeadings,
-  prepareInlineHeadingFont,
-} from './inline-heading-service.js'
+import { prepareInlineHeadingFont } from './inline-heading-service.js'
 import { drawPageNumber, preparePageNumberFont } from './page-number-service.js'
-import { resolveMaterialSourcePath } from './project-service.js'
+import { resolveMaterialContentPath } from './project-service.js'
 
 export class ExportCancelledError extends Error {
   constructor() {
@@ -73,6 +68,8 @@ const verifyOutput = async (
       : { width: A4_SIZE_POINTS.height, height: A4_SIZE_POINTS.width }
   const nonA4Pages: number[] = []
   const actualMarkers: (string | null)[] = []
+  const actualMaterialMarkers: (string | null)[] = []
+  const actualOutlineMarkers: (string | null)[] = []
   const actualInlineHeadingMarkers: (string | null)[] = []
   const actualPageNumberLabels: (string | null)[] = []
   let pageNumberMarkerCount = 0
@@ -84,6 +81,8 @@ const verifyOutput = async (
       nonA4Pages.push(index + 1)
     }
     actualMarkers.push(readMarker(document, index, 'SPackPageId'))
+    actualMaterialMarkers.push(readMarker(document, index, 'SPackMaterialId'))
+    actualOutlineMarkers.push(readMarker(document, index, 'SPackOutlineNodeId'))
     actualInlineHeadingMarkers.push(readMarker(document, index, 'SPackInlineHeadings'))
     actualPageNumberLabels.push(readMarker(document, index, 'SPackPageNumberLabel'))
     if (readMarker(document, index, 'SPackPageNumber') === 'true') {
@@ -117,6 +116,17 @@ const verifyOutput = async (
     label: '页面顺序与 PagePlan 一致',
     passed: orderMatches,
     detail: orderMatches ? '全部页面标记顺序一致' : '页面标记顺序不一致',
+  })
+  const semanticMarkersMatch = request.plan.pages.every(
+    (page, index) =>
+      actualMaterialMarkers[index] === page.materialId &&
+      actualOutlineMarkers[index] === page.outlineNodeId,
+  )
+  checks.push({
+    code: 'semantic-page-markers',
+    label: '材料和目录节点标记与 PagePlan 一致',
+    passed: semanticMarkersMatch,
+    detail: semanticMarkersMatch ? '全部语义页面标记一致' : '存在材料或目录节点标记不一致',
   })
   const expectedPageNumberLabels = request.plan.pages.map((page) =>
     page.showPageNumber ? page.printedPageLabel : null,
@@ -264,7 +274,7 @@ export const executePdfExport = async (
           .flatMap((node) => node.materials)
           .find((candidate) => candidate.id === plannedPage.materialId)
         if (!material) throw new Error(`找不到材料“${plannedPage.displayTitle}”。`)
-        const sourcePath = resolveMaterialSourcePath(
+        const sourcePath = resolveMaterialContentPath(
           request.projectDirectory,
           material,
           plannedPage.sourceId,
@@ -273,47 +283,22 @@ export const executePdfExport = async (
           currentPdfDocument = await loadSourcePdf(sourcePath)
           currentPdfPath = sourcePath
         }
-        const layoutPage = outputDocument.addPage(
-          request.project.exportSettings.targetOrientation === 'portrait'
-            ? [A4_SIZE_POINTS.width, A4_SIZE_POINTS.height]
-            : [A4_SIZE_POINTS.height, A4_SIZE_POINTS.width],
-        )
-        const inlineHeadingLayout =
-          inlineHeadingFont && plannedPage.inlineHeadings.length > 0
-            ? layoutInlineHeadings(layoutPage, plannedPage, request.project, inlineHeadingFont)
-            : null
-        outputDocument.removePage(outputDocument.getPageCount() - 1)
-        outputPage = await appendPdfContentPage({
+        outputPage = await appendPlannedContentPage({
           targetDocument: outputDocument,
+          projectDirectory: request.projectDirectory,
           sourceDocument: currentPdfDocument,
           plannedPage,
           project: request.project,
-          ...(inlineHeadingLayout ? { contentMargins: inlineHeadingLayout.contentMargins } : {}),
+          ...(inlineHeadingFont ? { inlineHeadingFont } : {}),
         })
-        if (inlineHeadingLayout && inlineHeadingFont) {
-          drawInlineHeadings(outputPage, inlineHeadingLayout, inlineHeadingFont)
-        }
       } else if (plannedPage.pageType === 'imageContent') {
-        const layoutPage = outputDocument.addPage(
-          request.project.exportSettings.targetOrientation === 'portrait'
-            ? [A4_SIZE_POINTS.width, A4_SIZE_POINTS.height]
-            : [A4_SIZE_POINTS.height, A4_SIZE_POINTS.width],
-        )
-        const inlineHeadingLayout =
-          inlineHeadingFont && plannedPage.inlineHeadings.length > 0
-            ? layoutInlineHeadings(layoutPage, plannedPage, request.project, inlineHeadingFont)
-            : null
-        outputDocument.removePage(outputDocument.getPageCount() - 1)
-        outputPage = await appendImageContentPage({
+        outputPage = await appendPlannedContentPage({
           targetDocument: outputDocument,
           projectDirectory: request.projectDirectory,
           plannedPage,
           project: request.project,
-          ...(inlineHeadingLayout ? { contentMargins: inlineHeadingLayout.contentMargins } : {}),
+          ...(inlineHeadingFont ? { inlineHeadingFont } : {}),
         })
-        if (inlineHeadingLayout && inlineHeadingFont) {
-          drawInlineHeadings(outputPage, inlineHeadingLayout, inlineHeadingFont)
-        }
       } else {
         throw new Error(`页面“${plannedPage.displayTitle}”缺少生成文件。`)
       }

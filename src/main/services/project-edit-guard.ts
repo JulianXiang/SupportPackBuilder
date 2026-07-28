@@ -17,6 +17,7 @@ const sourceSignature = (source: MaterialSource): string =>
     width: source.width ?? null,
     height: source.height ?? null,
     exifOrientation: source.exifOrientation ?? null,
+    conversion: source.conversion ?? null,
   })
 
 const materialSourceSignature = (material: Material): string =>

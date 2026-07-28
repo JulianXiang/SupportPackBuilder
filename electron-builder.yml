@@ -1,6 +1,7 @@
 appId: cn.supportpack.builder
 productName: 个人支撑材料编排器
 asar: true
+beforePack: scripts/before-pack.mjs
 afterPack: scripts/after-pack.mjs
 directories:
   output: release
@@ -14,6 +15,10 @@ asarUnpack:
   - node_modules/@napi-rs/canvas/**/*
   - node_modules/@napi-rs/canvas-*/**/*
 extraResources:
+  - from: vendor/libreoffice-runtime
+    to: libreoffice
+    filter:
+      - '**/*'
   - from: resources/public/fonts
     to: fonts
     filter:

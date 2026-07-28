@@ -31,6 +31,8 @@ export const ValidationIssueSchema = z.object({
 
 export const InlineHeadingSchema = z.object({
   level: z.union([z.literal(1), z.literal(2), z.literal(3)]),
+  title: z.string().min(1),
+  sequenceLabel: z.string().min(1),
   text: z.string().min(1),
 })
 
@@ -45,6 +47,7 @@ export const PlannedPageSchema = z.object({
   sourcePageIndex: z.number().int().nonnegative().nullable(),
   sourcePageId: z.string().nullable(),
   displayTitle: z.string(),
+  sequenceLabel: z.string().nullable(),
   inlineHeadings: z.array(InlineHeadingSchema),
   logicalPageNumber: LogicalPageNumberSchema.nullable(),
   showPageNumber: z.boolean(),
@@ -59,6 +62,8 @@ export const TocEntrySchema = z.object({
   kind: z.enum(['level1', 'level2', 'material']),
   level: z.union([z.literal(1), z.literal(2), z.literal(3)]),
   title: z.string().min(1),
+  sequenceLabel: z.string().min(1),
+  displayText: z.string().min(1),
   outlineNodeId: z.uuid().nullable(),
   materialId: z.uuid().nullable(),
   logicalPageNumber: z.number().int().positive(),
@@ -86,6 +91,10 @@ export const PagePlanSchema = z.object({
   outlineStartPages: z.record(z.string(), z.number().int().positive()),
   materialStartPages: z.record(z.string(), z.number().int().positive()),
   materialEndPages: z.record(z.string(), z.number().int().positive()),
+  outlineSequenceLabels: z.record(z.string(), z.string().min(1)),
+  materialSequenceLabels: z.record(z.string(), z.string().min(1)),
+  outputOutlineNodeIds: z.array(z.uuid()),
+  outputMaterialIds: z.array(z.uuid()),
   tocEntries: z.array(TocEntrySchema),
   errors: z.array(ValidationIssueSchema),
   warnings: z.array(ValidationIssueSchema),

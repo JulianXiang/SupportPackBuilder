@@ -13,6 +13,7 @@ export default tseslint.config(
       'test-results/**',
       'fixtures/generated/**',
       'resources/icons/generated/**',
+      'vendor/**',
       'eslint.config.mjs',
     ],
   },

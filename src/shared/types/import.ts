@@ -1,4 +1,5 @@
 import type {
+  OfficeFormat,
   MaterialSource,
   Project,
   SourceTypeSchema,
@@ -13,7 +14,8 @@ export type ImportCandidate = {
   id: string
   originalPath: string
   originalFileName: string
-  sourceType: 'pdf' | 'image'
+  sourceType: 'pdf' | 'image' | 'office'
+  officeFormat?: OfficeFormat
   fileHash: string
   fileSize: number
   modifiedTime: number
@@ -25,9 +27,20 @@ export type ImportCandidate = {
   validationStatus: ValidationStatus
   validationMessages: ValidationMessage[]
   duplicateMaterialIds: string[]
+  conversion?: {
+    adapterId: 'libreoffice'
+    engineVersion: string
+    officeFormat: OfficeFormat
+    fileHash: string
+    fileSize: number
+    pageCount: number
+    convertedAt: string
+    warnings: string[]
+  }
 }
 
 export type ImportAnalysis = {
+  taskId: string
   token: string
   candidates: ImportCandidate[]
   expiresAt: string
@@ -59,8 +72,34 @@ export type ImportCommitResult = {
 }
 
 export type ValidatedSource = {
-  sourceType: 'pdf' | 'image'
+  sourceType: 'pdf' | 'image' | 'office'
   source: Omit<MaterialSource, 'id' | 'sourcePath' | 'storedPath'>
   validationStatus: ValidationStatus
   validationMessages: ValidationMessage[]
+  officeFormat?: OfficeFormat
+  officeHasPrintSettings?: boolean
 }
+
+export type ImportAnalysisProgress = {
+  taskId: string
+  stageLabel: string
+  currentFile: string
+  processedFiles: number
+  totalFiles: number
+  percentage: number
+  cancellable: boolean
+}
+
+export type OfficeReconversionResult =
+  | {
+      status: 'completed'
+      project: Project
+      pageCountChanged: boolean
+      previousPageCount: number
+      pageCount: number
+    }
+  | {
+      status: 'confirmation-required'
+      previousPageCount: number
+      pageCount: number
+    }

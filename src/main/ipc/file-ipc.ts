@@ -4,14 +4,21 @@ import { IPC_CHANNELS } from '../../shared/constants/ipc.js'
 import {
   DroppedPathsInputSchema,
   EmptyInputSchema,
+  ImportCancelAnalysisInputSchema,
   ImportCommitInputSchema,
+  ImportReconvertOfficeInputSchema,
 } from '../../shared/schemas/ipc-schema.js'
 import type { AppRuntime } from '../app-runtime.js'
 import { showOpenDialog } from '../services/dialog-service.js'
 import { scanImportDirectory } from '../services/import-service.js'
 import { registerValidatedHandler } from './ipc-helpers.js'
 
-const FILE_FILTERS = [{ name: '支持的材料', extensions: ['pdf', 'jpg', 'jpeg', 'png', 'webp'] }]
+const FILE_FILTERS = [
+  {
+    name: '支持的材料',
+    extensions: ['pdf', 'jpg', 'jpeg', 'png', 'webp', 'docx', 'pptx', 'xlsx'],
+  },
+]
 
 const expandDroppedPaths = async (paths: string[]): Promise<string[]> => {
   const expanded: string[] = []
@@ -36,13 +43,17 @@ export const registerFileIpc = (input: {
     handler: async () => {
       const session = runtime.requireSession()
       const selection = await showOpenDialog(mainWindow, 'importFiles', {
-        title: '选择 PDF 或图片材料',
+        title: '选择 PDF、图片或 Office 材料',
         buttonLabel: '分析所选文件',
         properties: ['openFile', 'multiSelections'],
         filters: FILE_FILTERS,
       })
       if (selection.canceled || selection.filePaths.length === 0) return null
-      return await runtime.importService.analyze(session.project, selection.filePaths)
+      return await runtime.importService.analyze(session.project, selection.filePaths, {
+        projectDirectory: session.projectDirectory,
+        onProgress: (progress) =>
+          mainWindow.webContents.send(IPC_CHANNELS.importAnalysisProgress, progress),
+      })
     },
   })
 
@@ -61,8 +72,12 @@ export const registerFileIpc = (input: {
       const directory = selection.filePaths[0]
       if (selection.canceled || !directory) return null
       const paths = await scanImportDirectory(directory)
-      if (paths.length === 0) throw new Error('所选文件夹中没有支持的 PDF 或图片。')
-      return await runtime.importService.analyze(session.project, paths)
+      if (paths.length === 0) throw new Error('所选文件夹中没有支持的 PDF、图片或 Office 文件。')
+      return await runtime.importService.analyze(session.project, paths, {
+        projectDirectory: session.projectDirectory,
+        onProgress: (progress) =>
+          mainWindow.webContents.send(IPC_CHANNELS.importAnalysisProgress, progress),
+      })
     },
   })
 
@@ -74,8 +89,12 @@ export const registerFileIpc = (input: {
     handler: async ({ paths }) => {
       const session = runtime.requireSession()
       const expanded = await expandDroppedPaths(paths)
-      if (expanded.length === 0) throw new Error('拖入内容中没有支持的 PDF 或图片。')
-      return await runtime.importService.analyze(session.project, expanded)
+      if (expanded.length === 0) throw new Error('拖入内容中没有支持的 PDF、图片或 Office 文件。')
+      return await runtime.importService.analyze(session.project, expanded, {
+        projectDirectory: session.projectDirectory,
+        onProgress: (progress) =>
+          mainWindow.webContents.send(IPC_CHANNELS.importAnalysisProgress, progress),
+      })
     },
   })
 
@@ -94,6 +113,38 @@ export const registerFileIpc = (input: {
       session.project = result.project
       session.revision += 1
       runtime.dirty = true
+      return result
+    },
+  })
+
+  registerValidatedHandler({
+    channel: IPC_CHANNELS.importCancelAnalysis,
+    schema: ImportCancelAnalysisInputSchema,
+    stage: '取消导入分析',
+    mainWindow,
+    handler: async ({ identifier }) => {
+      await runtime.importService.cancelAnalysis(identifier)
+    },
+  })
+
+  registerValidatedHandler({
+    channel: IPC_CHANNELS.importReconvertOffice,
+    schema: ImportReconvertOfficeInputSchema,
+    stage: '重新转换 Office 文件',
+    mainWindow,
+    handler: async ({ materialId, confirmPageReset }) => {
+      const session = runtime.requireSession()
+      const result = await runtime.importService.reconvertOffice(
+        session.projectDirectory,
+        session.project,
+        materialId,
+        confirmPageReset,
+      )
+      if (result.status === 'completed') {
+        session.project = result.project
+        session.revision += 1
+        runtime.dirty = true
+      }
       return result
     },
   })

@@ -249,15 +249,27 @@ export const registerProjectIpc = (input: {
         title: `重新定位《${source.originalFileName}》`,
         buttonLabel: '使用此文件',
         properties: ['openFile'],
-        filters: [{ name: '支持的材料文件', extensions: ['pdf', 'jpg', 'jpeg', 'png', 'webp'] }],
+        filters: [
+          {
+            name: '支持的材料文件',
+            extensions: ['pdf', 'jpg', 'jpeg', 'png', 'webp', 'docx', 'pptx', 'xlsx'],
+          },
+        ],
       })
       const selectedPath = selection.filePaths[0]
       if (selection.canceled || !selectedPath) return null
       const validated = await validateSourceFile(selectedPath)
-      const expectedType = material.sourceType === 'pdf' ? 'pdf' : 'image'
+      const expectedType =
+        material.sourceType === 'pdf'
+          ? 'pdf'
+          : material.sourceType === 'office'
+            ? 'office'
+            : 'image'
       if (validated.sourceType !== expectedType) {
         throw new Error(
-          `所选文件类型与原材料不一致。需要 ${expectedType === 'pdf' ? 'PDF' : '图片'}文件。`,
+          `所选文件类型与原材料不一致。需要 ${
+            expectedType === 'pdf' ? 'PDF' : expectedType === 'office' ? 'Office' : '图片'
+          }文件。`,
         )
       }
       if (validated.source.fileHash !== source.fileHash) {
@@ -269,11 +281,13 @@ export const registerProjectIpc = (input: {
         project.assetStorageMode === 'copy'
           ? await copyAssetIntoProject(session.projectDirectory, selectedPath, source.id)
           : null
+      const existingConversion = source.conversion
       Object.assign(source, validated.source, {
         id: source.id,
         sourcePath: storedPath ?? selectedPath,
         storedPath,
       })
+      if (existingConversion) source.conversion = existingConversion
       const primary = material.sourceItems[0]
       if (primary) {
         material.sourcePath = primary.sourcePath
@@ -283,7 +297,10 @@ export const registerProjectIpc = (input: {
       }
       material.fileSize = material.sourceItems.reduce((total, item) => total + item.fileSize, 0)
       material.modifiedTime = Math.max(...material.sourceItems.map((item) => item.modifiedTime))
-      material.pageCount = material.sourceItems.reduce((total, item) => total + item.pageCount, 0)
+      material.pageCount = material.sourceItems.reduce(
+        (total, item) => total + (item.conversion?.pageCount ?? item.pageCount),
+        0,
+      )
       material.validationStatus = validated.validationStatus
       material.validationMessages = validated.validationMessages
       material.updatedAt = new Date().toISOString()

@@ -1,9 +1,15 @@
-import { app } from 'electron'
+import electron from 'electron'
 import log from 'electron-log/main'
 import { basename, join } from 'node:path'
 
+const electronRuntime: unknown = electron
+const electronApp =
+  typeof electronRuntime === 'object' && electronRuntime !== null && 'app' in electronRuntime
+    ? (electronRuntime as { app: typeof import('electron').app }).app
+    : null
+
 const redactPathLikeText = (value: string): string => {
-  const homePath = app.isReady() ? app.getPath('home') : ''
+  const homePath = electronApp?.isReady() ? electronApp.getPath('home') : ''
   let redacted = homePath ? value.replaceAll(homePath, '~') : value
   redacted = redacted.replace(
     /(?:\/[^/\s]+){3,}|(?:[A-Za-z]:\\(?:[^\\\s]+\\){2,}[^\\\s]*)/g,
@@ -34,8 +40,10 @@ const sanitize = (value: unknown): unknown => {
 }
 
 export const initializeLogService = (): void => {
+  if (!electronApp) throw new Error('日志服务只能在 Electron 主进程中初始化。')
   log.initialize()
-  log.transports.file.resolvePathFn = () => join(app.getPath('logs'), 'support-pack-builder.log')
+  log.transports.file.resolvePathFn = () =>
+    join(electronApp.getPath('logs'), 'support-pack-builder.log')
   log.transports.file.level = 'info'
   log.transports.console.level = process.env.NODE_ENV === 'development' ? 'debug' : 'warn'
 }

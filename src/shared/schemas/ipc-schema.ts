@@ -54,6 +54,15 @@ export const ImportCommitInputSchema = z.object({
   ),
 })
 
+export const ImportCancelAnalysisInputSchema = z.object({
+  identifier: z.uuid(),
+})
+
+export const ImportReconvertOfficeInputSchema = z.object({
+  materialId: z.uuid(),
+  confirmPageReset: z.boolean().default(false),
+})
+
 export const DroppedPathsInputSchema = z.object({
   paths: z.array(z.string().min(1).max(4096)).min(1).max(500),
 })
@@ -66,6 +75,7 @@ export const PreviewPlanInputSchema = z.object({
 
 export const PreviewThumbnailInputSchema = z.object({
   pageId: z.string().min(1).max(500),
+  planFingerprint: z.string().min(1).max(500),
   width: z.number().int().min(120).max(900),
 })
 

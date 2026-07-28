@@ -1,9 +1,14 @@
 import { createHash, randomUUID } from 'node:crypto'
-import { copyFile, mkdir, open, readFile, rename, rm, stat, utimes } from 'node:fs/promises'
+import { copyFile, mkdir, readFile, rm, stat, utimes } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import { PDFDocument } from 'pdf-lib'
 import sharp from 'sharp'
 import { generateFixtures } from './generate-fixtures.js'
+import { ConversionManager } from '../src/main/services/conversion-manager.js'
+import { ImportService } from '../src/main/services/import-service.js'
+import { LibreOfficeConversionAdapter } from '../src/main/services/libreoffice-conversion-adapter.js'
+import { resolveLibreOfficeExecutable } from '../src/main/services/libreoffice-runtime.js'
+import { writeProjectAtomically } from '../src/main/services/project-service.js'
 import {
   createDefaultProject,
   ProjectSchema,
@@ -120,7 +125,7 @@ const outlineNodes: OutlineNode[] = [
     id: levelOneId,
     parentId: null,
     level: 1,
-    title: '一、打包成品回归材料',
+    title: '打包成品回归材料',
     order: 0,
     enabled: true,
     insertDividerPage: false,
@@ -160,19 +165,40 @@ const project = ProjectSchema.parse(
     outlineNodes,
   }),
 )
-const temporaryPath = join(projectDirectory, 'project.json.tmp')
-const projectPath = join(projectDirectory, 'project.json')
-const handle = await open(temporaryPath, 'w', 0o600)
-try {
-  await handle.writeFile(`${JSON.stringify(project, null, 2)}\n`, 'utf8')
-  await handle.sync()
-} finally {
-  await handle.close()
+const libreOfficeExecutable = await resolveLibreOfficeExecutable({
+  appPath: process.cwd(),
+  resourcesPath: process.cwd(),
+  packaged: false,
+})
+if (!libreOfficeExecutable) {
+  throw new Error('打包成品回归准备需要 LibreOffice 运行时，请先运行 npm run prepare:libreoffice。')
 }
-await rename(temporaryPath, projectPath)
+const importService = new ImportService(
+  new ConversionManager(new LibreOfficeConversionAdapter(libreOfficeExecutable)),
+)
+const officeAnalysis = await importService.analyze(
+  project,
+  [fixtures.docxDocument, fixtures.pptxPresentation, fixtures.xlsxWorkbook],
+  { projectDirectory },
+)
+if (officeAnalysis.candidates.some((candidate) => candidate.validationStatus === 'error')) {
+  throw new Error('打包成品回归 Office 夹具转换失败。')
+}
+const officeImport = await importService.commit(projectDirectory, project, {
+  token: officeAnalysis.token,
+  targetOutlineNodeId: levelTwoId,
+  imageGrouping: 'separate',
+  resolutions: officeAnalysis.candidates.map((candidate) => ({
+    candidateId: candidate.id,
+    action: 'import' as const,
+  })),
+})
+await writeProjectAtomically(projectDirectory, officeImport.project)
+const projectPath = join(projectDirectory, 'project.json')
 process.stdout.write(
   `${JSON.stringify({
     projectPath,
     outputPath: join(projectDirectory, 'output', '打包成品导出.pdf'),
+    officeMaterialCount: officeImport.importedMaterialIds.length,
   })}\n`,
 )

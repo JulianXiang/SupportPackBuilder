@@ -18,8 +18,8 @@ export const WelcomeView = (props: WelcomeViewProps): React.JSX.Element => (
         <div>
           <Typography.Title level={2}>整理个人支撑材料</Typography.Title>
           <Typography.Paragraph type="secondary">
-            所有文件仅在本机处理。新建项目后，可以建立两级目录、导入 PDF 与图片，并导出统一 A4
-            文档。
+            所有文件仅在本机处理。新建项目后，可以建立两级目录、导入 PDF、图片与 Office
+            文档，并导出统一 A4 文档。
           </Typography.Paragraph>
         </div>
       </div>

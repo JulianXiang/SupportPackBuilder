@@ -16,9 +16,14 @@ import type { ProjectSession } from './services/project-service.js'
 import { writeProjectAtomically } from './services/project-service.js'
 import { RecentProjectService } from './services/recent-project-service.js'
 import { ThumbnailService } from './services/thumbnail-service.js'
-import { validateProjectFiles } from './services/validation-service.js'
+import {
+  synchronizeProjectFileStatuses,
+  validateProjectFiles,
+} from './services/validation-service.js'
 import { appLog } from './services/log-service.js'
 import type { PrintWindowService } from './windows/print-window.js'
+import { ConversionManager } from './services/conversion-manager.js'
+import { LibreOfficeConversionAdapter } from './services/libreoffice-conversion-adapter.js'
 
 type PreparedExport = {
   project: Project
@@ -32,7 +37,7 @@ type RunningExport = {
 }
 
 export class AppRuntime {
-  readonly importService = new ImportService()
+  readonly importService: ImportService
   readonly recentProjects = new RecentProjectService()
   readonly #pagePlanService: PagePlanService
   readonly #workerDirectory: string
@@ -41,6 +46,7 @@ export class AppRuntime {
   readonly #mainWindow: BrowserWindow
   readonly #preparedExports = new Map<string, PreparedExport>()
   readonly #runningExports = new Map<string, RunningExport>()
+  #preparedPreview: PreparedPagePlan | null = null
   readonly allowedSystemPaths = new Set<string>()
   session: ProjectSession | null = null
   thumbnailService: ThumbnailService | null = null
@@ -52,12 +58,16 @@ export class AppRuntime {
     workerDirectory: string
     fontPath: string
     boldFontPath: string
+    libreOfficeExecutable: string | null
   }) {
     this.#mainWindow = input.mainWindow
     this.#pagePlanService = new PagePlanService(input.printWindow)
     this.#workerDirectory = input.workerDirectory
     this.#fontPath = input.fontPath
     this.#boldFontPath = input.boldFontPath
+    this.importService = new ImportService(
+      new ConversionManager(new LibreOfficeConversionAdapter(input.libreOfficeExecutable)),
+    )
   }
 
   requireSession(): ProjectSession {
@@ -66,9 +76,24 @@ export class AppRuntime {
   }
 
   async setSession(session: ProjectSession): Promise<void> {
+    if (this.#preparedPreview) {
+      await rm(this.#preparedPreview.temporaryDirectory, { recursive: true, force: true }).catch(
+        () => undefined,
+      )
+      this.#preparedPreview = null
+    }
+    session.project = await synchronizeProjectFileStatuses(
+      session.projectDirectory,
+      session.project,
+    )
     this.session = session
     this.dirty = false
-    this.thumbnailService = new ThumbnailService(session.projectDirectory, this.#workerDirectory)
+    this.thumbnailService = new ThumbnailService(
+      session.projectDirectory,
+      this.#workerDirectory,
+      this.#fontPath,
+      this.#boldFontPath,
+    )
     await this.thumbnailService.initialize()
     this.allowedSystemPaths.clear()
     this.allowedSystemPaths.add(session.projectDirectory)
@@ -98,6 +123,37 @@ export class AppRuntime {
         ? this.acceptRendererProject(project, revision)
         : this.requireSession()
     return this.#pagePlanService.preview(session.project, session.revision, tocPageCount)
+  }
+
+  async preparePreview(project?: Project, revision?: number): Promise<PagePlan> {
+    const session =
+      project && revision !== undefined
+        ? this.acceptRendererProject(project, revision)
+        : this.requireSession()
+    const expectedRevision = session.revision
+    const prepared = await this.#pagePlanService.prepareForPreview(
+      structuredClone(session.project),
+      expectedRevision,
+      session.projectDirectory,
+    )
+    if (this.requireSession().revision !== expectedRevision) {
+      await rm(prepared.temporaryDirectory, { recursive: true, force: true }).catch(() => undefined)
+      throw new Error('项目配置版本已过期，请刷新后重试。')
+    }
+    const previous = this.#preparedPreview
+    this.#preparedPreview = prepared
+    if (previous) {
+      await rm(previous.temporaryDirectory, { recursive: true, force: true }).catch(() => undefined)
+    }
+    return prepared.plan
+  }
+
+  getPreparedPreview(planFingerprint: string): PreparedPagePlan {
+    const prepared = this.#preparedPreview
+    if (prepared?.plan.planFingerprint !== planFingerprint) {
+      throw new Error('页面计划已变化，请刷新预览。')
+    }
+    return prepared
   }
 
   async save(project: Project, revision: number): Promise<ProjectSession> {
@@ -258,6 +314,12 @@ export class AppRuntime {
   }
 
   async cleanup(): Promise<void> {
+    if (this.#preparedPreview) {
+      await rm(this.#preparedPreview.temporaryDirectory, { recursive: true, force: true }).catch(
+        () => undefined,
+      )
+      this.#preparedPreview = null
+    }
     for (const [taskId, task] of this.#runningExports) {
       task.process.kill()
       await rm(task.temporaryDirectory, { recursive: true, force: true }).catch(() => undefined)

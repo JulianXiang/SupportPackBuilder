@@ -65,7 +65,7 @@ export const createOutlineFixture = (material = createMaterialFixture()): Outlin
     id: IDS.level1,
     parentId: null,
     level: 1,
-    title: '一、论文成果',
+    title: '论文成果',
     order: 0,
     enabled: true,
     insertDividerPage: true,

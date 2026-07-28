@@ -6,6 +6,8 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { generateFixtures, type FixtureManifest } from '../../scripts/generate-fixtures.js'
 import { executePdfExport } from '../../src/main/services/pdf-export-service.js'
 import { ImportService } from '../../src/main/services/import-service.js'
+import { ConversionManager } from '../../src/main/services/conversion-manager.js'
+import { LibreOfficeConversionAdapter } from '../../src/main/services/libreoffice-conversion-adapter.js'
 import { A4_SIZE_POINTS } from '../../src/shared/constants/document.js'
 import { buildPagePlan } from '../../src/shared/utils/page-plan.js'
 import type { PdfExportWorkerStart } from '../../src/shared/types/worker-protocol.js'
@@ -45,8 +47,12 @@ const prepareExportRequest = async (taskId: string): Promise<PdfExportWorkerStar
     },
     outlineNodes: emptyOutline,
   }
-  const importService = new ImportService()
-  const analysis = await importService.analyze(project, [fixtures.tenPagePdf, fixtures.pngImage])
+  const importService = new ImportService(
+    new ConversionManager(new LibreOfficeConversionAdapter(null)),
+  )
+  const analysis = await importService.analyze(project, [fixtures.tenPagePdf, fixtures.pngImage], {
+    projectDirectory: testDirectory,
+  })
   const imported = await importService.commit(testDirectory, project, {
     token: analysis.token,
     targetOutlineNodeId: IDS.level2,

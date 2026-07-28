@@ -46,6 +46,7 @@ const withoutRotation = (
 
 type PageCardProps = {
   page: PlannedPage
+  planFingerprint: string
   width: number
   selected: boolean
   onSelect: (event: React.MouseEvent) => void
@@ -54,14 +55,15 @@ type PageCardProps = {
 
 const PageCard = (props: PageCardProps): React.JSX.Element => {
   const generated = !['pdfContent', 'imageContent'].includes(props.page.pageType)
+  const previewable = props.page.pageType !== 'blank'
   const sortable = useSortable({ id: props.page.id, disabled: generated })
   const [thumbnailUrl, setThumbnailUrl] = useState<string | null>(null)
-  const [loading, setLoading] = useState(!generated)
+  const [loading, setLoading] = useState(previewable)
   const [failed, setFailed] = useState(false)
 
   useEffect(() => {
     let active = true
-    if (generated) {
+    if (!previewable) {
       setLoading(false)
       setThumbnailUrl(null)
       return () => {
@@ -71,7 +73,11 @@ const PageCard = (props: PageCardProps): React.JSX.Element => {
     setLoading(true)
     setFailed(false)
     void window.supportPack.preview
-      .thumbnail({ pageId: props.page.id, width: Math.round(props.width * 1.6) })
+      .thumbnail({
+        pageId: props.page.id,
+        planFingerprint: props.planFingerprint,
+        width: Math.round(props.width * 1.6),
+      })
       .then((result) => {
         if (!active) return
         if (result.ok) setThumbnailUrl(result.value.url)
@@ -81,7 +87,7 @@ const PageCard = (props: PageCardProps): React.JSX.Element => {
     return () => {
       active = false
     }
-  }, [generated, props.page.id, props.page.rotation, props.width])
+  }, [previewable, props.page.id, props.page.rotation, props.planFingerprint, props.width])
 
   return (
     <article
@@ -118,18 +124,6 @@ const PageCard = (props: PageCardProps): React.JSX.Element => {
       >
         {thumbnailUrl ? (
           <div className="content-thumbnail-preview">
-            {props.page.inlineHeadings.length > 0 && (
-              <div className="inline-heading-preview">
-                {props.page.inlineHeadings.map((heading, index) => (
-                  <div
-                    className={`inline-heading-level-${heading.level}`}
-                    key={`${heading.level}:${index}`}
-                  >
-                    {heading.text}
-                  </div>
-                ))}
-              </div>
-            )}
             <img src={thumbnailUrl} alt={`${props.page.displayTitle}缩略图`} draggable={false} />
           </div>
         ) : props.page.pageType === 'blank' ? (
@@ -328,7 +322,11 @@ export const PreviewPanel = (props: PreviewPanelProps): React.JSX.Element => {
                 const selectedPage = pages.find((page) => page.id === props.selectedPageIds[0])
                 if (selectedPage)
                   void window.supportPack.preview
-                    .thumbnail({ pageId: selectedPage.id, width: 900 })
+                    .thumbnail({
+                      pageId: selectedPage.id,
+                      planFingerprint: props.plan?.planFingerprint ?? '',
+                      width: 900,
+                    })
                     .then((result) => {
                       if (result.ok && result.value.url) setLargeImage(result.value.url)
                     })
@@ -386,6 +384,7 @@ export const PreviewPanel = (props: PreviewPanelProps): React.JSX.Element => {
                           <PageCard
                             key={page.id}
                             page={page}
+                            planFingerprint={props.plan?.planFingerprint ?? ''}
                             width={thumbnailWidth}
                             selected={selected.has(page.id)}
                             onSelect={(event) => selectPage(page, pageIndex, event)}

@@ -4,8 +4,10 @@ import type { ProjectCreateInput } from '../shared/schemas/ipc-schema.js'
 import type { ExportPreflight, ExportProgress, ExportResult } from '../shared/types/export.js'
 import type {
   ImportAnalysis,
+  ImportAnalysisProgress,
   ImportCommitInput,
   ImportCommitResult,
+  OfficeReconversionResult,
 } from '../shared/types/import.js'
 import type { Result } from '../shared/types/result.js'
 
@@ -60,6 +62,12 @@ export type SupportPackApi = {
     selectFiles(): Promise<Result<ImportAnalysis | null>>
     selectFolder(): Promise<Result<ImportAnalysis | null>>
     commit(input: ImportCommitInput): Promise<Result<ImportCommitResult>>
+    cancelAnalysis(identifier: string): Promise<Result<void>>
+    reconvertOffice(input: {
+      materialId: string
+      confirmPageReset: boolean
+    }): Promise<Result<OfficeReconversionResult>>
+    onAnalysisProgress(callback: (progress: ImportAnalysisProgress) => void): () => void
     onDropped(callback: (result: Result<ImportAnalysis>) => void): () => void
   }
   preview: {
@@ -68,7 +76,11 @@ export type SupportPackApi = {
       expectedRevision: number
       tocPageCount?: number
     }): Promise<Result<PagePlan>>
-    thumbnail(input: { pageId: string; width: number }): Promise<Result<{ url: string | null }>>
+    thumbnail(input: {
+      pageId: string
+      planFingerprint: string
+      width: number
+    }): Promise<Result<{ url: string | null }>>
     refresh(): Promise<Result<PagePlan>>
   }
   export: {

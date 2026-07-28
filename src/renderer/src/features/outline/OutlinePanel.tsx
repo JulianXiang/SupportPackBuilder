@@ -27,14 +27,17 @@ import {
   verticalListSortingStrategy,
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import { App, Badge, Button, Checkbox, Dropdown, Input, Tooltip } from 'antd'
+import { App, Badge, Button, Checkbox, Dropdown, Input, Tag, Tooltip } from 'antd'
 import { useMemo, useState } from 'react'
+import type { PagePlan } from '../../../../shared/schemas/page-plan-schema.js'
 import type { Material, OutlineNode, Project } from '../../../../shared/schemas/project-schema.js'
+import { stripSequencePrefix } from '../../../../shared/utils/sequence-label.js'
 import type { Selection } from '../../stores/project-store.js'
 import { findOutlineNode } from '../../utils/project.js'
 
 type OutlinePanelProps = {
   project: Project
+  plan: PagePlan | null
   selection: Selection | null
   onSelect: (selection: Selection) => void
   onMutate: (mutator: (draft: Project) => void, selection?: Selection) => void
@@ -159,13 +162,14 @@ export const OutlinePanel = (props: OutlinePanelProps): React.JSX.Element => {
   const addLevelOne = (): void => {
     requestTitle('新增一级目录', `新建分类 ${props.project.outlineNodes.length + 1}`, (title) => {
       const id = crypto.randomUUID()
+      const pureTitle = stripSequencePrefix(title, 1)
       props.onMutate(
         (draft) => {
           draft.outlineNodes.push({
             id,
             parentId: null,
             level: 1,
-            title,
+            title: pureTitle,
             order: draft.outlineNodes.length,
             enabled: true,
             insertDividerPage: false,
@@ -189,6 +193,7 @@ export const OutlinePanel = (props: OutlinePanelProps): React.JSX.Element => {
     }
     requestTitle('新增二级目录', '新建材料分组', (title) => {
       const id = crypto.randomUUID()
+      const pureTitle = stripSequencePrefix(title, 2)
       props.onMutate(
         (draft) => {
           const target = draft.outlineNodes.find((node) => node.id === parent.id)
@@ -197,7 +202,7 @@ export const OutlinePanel = (props: OutlinePanelProps): React.JSX.Element => {
             id,
             parentId: target.id,
             level: 2,
-            title,
+            title: pureTitle,
             order: target.children.length,
             enabled: true,
             insertDividerPage: false,
@@ -338,8 +343,16 @@ export const OutlinePanel = (props: OutlinePanelProps): React.JSX.Element => {
     >
       <FilePdfOutlined className="outline-icon" />
       <span className="outline-title" title={material.title}>
+        {props.plan?.materialSequenceLabels[material.id] ? (
+          <span className="outline-sequence">{props.plan.materialSequenceLabels[material.id]}</span>
+        ) : null}
         {material.title}
       </span>
+      {props.plan && !props.plan.outputMaterialIds.includes(material.id) ? (
+        <Tag className="outline-output-tag" variant="filled">
+          未输出
+        </Tag>
+      ) : null}
       <Badge
         status={
           material.validationStatus === 'valid'
@@ -385,8 +398,18 @@ export const OutlinePanel = (props: OutlinePanelProps): React.JSX.Element => {
                 }
               />
               <span className="outline-title" title={node.title}>
+                {props.plan?.outlineSequenceLabels[node.id] ? (
+                  <span className="outline-sequence">
+                    {props.plan.outlineSequenceLabels[node.id]}
+                  </span>
+                ) : null}
                 {node.title}
               </span>
+              {props.plan && !props.plan.outputOutlineNodeIds.includes(node.id) ? (
+                <Tag className="outline-output-tag" variant="filled">
+                  未输出
+                </Tag>
+              ) : null}
               <span className="outline-count">{materialCount(node)}</span>
             </SortableRow>
           </div>

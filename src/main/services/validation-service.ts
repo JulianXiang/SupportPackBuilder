@@ -2,15 +2,38 @@ import { createHash } from 'node:crypto'
 import { createReadStream } from 'node:fs'
 import { access, stat } from 'node:fs/promises'
 import { constants as fsConstants } from 'node:fs'
-import { basename, extname, isAbsolute, join } from 'node:path'
+import { basename, extname, isAbsolute, join, relative, resolve } from 'node:path'
 import { fileTypeFromFile } from 'file-type'
 import { PDFDocument } from 'pdf-lib'
 import sharp, { type Metadata } from 'sharp'
 import type { Material, Project, ValidationMessage } from '../../shared/schemas/project-schema.js'
 import type { ValidatedSource } from '../../shared/types/import.js'
+import {
+  inspectOoxmlPackage,
+  isExplicitlyUnsupportedOfficePath,
+  officeFormatFromPath,
+} from './ooxml-validation-service.js'
 
-const ALLOWED_EXTENSIONS = new Set(['.pdf', '.jpg', '.jpeg', '.png', '.webp'])
-const ALLOWED_MIME_TYPES = new Set(['application/pdf', 'image/jpeg', 'image/png', 'image/webp'])
+const ALLOWED_EXTENSIONS = new Set([
+  '.pdf',
+  '.jpg',
+  '.jpeg',
+  '.png',
+  '.webp',
+  '.docx',
+  '.pptx',
+  '.xlsx',
+])
+const ALLOWED_MIME_TYPES = new Set([
+  'application/pdf',
+  'image/jpeg',
+  'image/png',
+  'image/webp',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'application/zip',
+])
 
 export const calculateFileHash = async (filePath: string): Promise<string> =>
   await new Promise<string>((resolve, reject) => {
@@ -38,6 +61,12 @@ const createValidationMessage = (
 export const validateSourceFile = async (filePath: string): Promise<ValidatedSource> => {
   const fileName = basename(filePath)
   const extension = extname(fileName).toLowerCase()
+  const officeFormat = officeFormatFromPath(filePath)
+  if (isExplicitlyUnsupportedOfficePath(filePath)) {
+    throw new Error(
+      `文件《${fileName}》属于旧版或宏启用 Office 格式，当前仅支持 DOCX、PPTX、XLSX。`,
+    )
+  }
   if (!ALLOWED_EXTENSIONS.has(extension)) {
     throw new Error(`文件《${fileName}》的扩展名不受支持。`)
   }
@@ -51,20 +80,56 @@ export const validateSourceFile = async (filePath: string): Promise<ValidatedSou
   }
 
   const detected = await fileTypeFromFile(filePath)
-  if (!detected || !ALLOWED_MIME_TYPES.has(detected.mime)) {
+  if ((!detected && !officeFormat) || (detected && !ALLOWED_MIME_TYPES.has(detected.mime))) {
     throw new Error(`文件《${fileName}》的真实格式无法识别或不受支持。`)
   }
   const extensionMatches =
-    detected.ext === 'pdf'
-      ? extension === '.pdf'
-      : detected.ext === 'jpg'
-        ? extension === '.jpg' || extension === '.jpeg'
-        : extension === `.${detected.ext}`
+    officeFormat !== null
+      ? !detected ||
+        detected.mime === 'application/zip' ||
+        detected.ext === officeFormat ||
+        detected.mime.includes('openxmlformats')
+      : detected?.ext === 'pdf'
+        ? extension === '.pdf'
+        : detected?.ext === 'jpg'
+          ? extension === '.jpg' || extension === '.jpeg'
+          : extension === `.${detected?.ext}`
   if (!extensionMatches) {
-    throw new Error(`文件《${fileName}》的扩展名与真实格式不一致（检测为 ${detected.mime}）。`)
+    throw new Error(
+      `文件《${fileName}》的扩展名与真实格式不一致（检测为 ${detected?.mime ?? '未知'}）。`,
+    )
   }
 
   const [fileHash] = await Promise.all([calculateFileHash(filePath)])
+  if (officeFormat) {
+    const inspection = await inspectOoxmlPackage(filePath, officeFormat)
+    const messages = inspection.warnings.map((message, index) =>
+      createValidationMessage(
+        `office-inspection-${index + 1}`,
+        'warning',
+        `文件《${fileName}》：${message}`,
+        '请在导入后检查转换快照的页面与排版。',
+      ),
+    )
+    return {
+      sourceType: 'office',
+      officeFormat,
+      officeHasPrintSettings: inspection.hasPrintSettings,
+      source: {
+        originalFileName: fileName,
+        fileHash,
+        fileSize: fileStat.size,
+        modifiedTime: Math.round(fileStat.mtimeMs),
+        mimeType: inspection.mimeType,
+        pageCount: 1,
+      },
+      validationStatus: messages.length > 0 ? 'warning' : 'valid',
+      validationMessages: messages,
+    }
+  }
+  if (!detected) {
+    throw new Error(`文件《${fileName}》的真实格式无法识别或不受支持。`)
+  }
   if (detected.mime === 'application/pdf') {
     const bytes = await import('node:fs/promises').then(
       async ({ readFile }) => await readFile(filePath),
@@ -167,6 +232,7 @@ export type MaterialFileCheck = {
   materialTitle: string
   status: Material['validationStatus']
   messages: ValidationMessage[]
+  officeSnapshotStatus?: 'ready' | 'stale' | 'error'
 }
 
 export const validateProjectFiles = async (
@@ -180,6 +246,7 @@ export const validateProjectFiles = async (
   for (const material of materials) {
     const messages: ValidationMessage[] = []
     let status: Material['validationStatus'] = 'valid'
+    let officeSnapshotStatus: MaterialFileCheck['officeSnapshotStatus']
     for (const source of material.sourceItems) {
       const path = source.storedPath ? join(projectDirectory, source.storedPath) : source.sourcePath
       if (!source.storedPath && !isAbsolute(path)) {
@@ -197,10 +264,25 @@ export const validateProjectFiles = async (
       try {
         const fileStat = await stat(path)
         if (!fileStat.isFile()) throw new Error('不是普通文件')
-        if (
-          fileStat.size !== source.fileSize ||
-          Math.round(fileStat.mtimeMs) !== source.modifiedTime
-        ) {
+        const metadataChanged =
+          fileStat.size !== source.fileSize || Math.round(fileStat.mtimeMs) !== source.modifiedTime
+        if (material.sourceType === 'office' && source.conversion) {
+          const currentHash = await calculateFileHash(path)
+          if (currentHash !== source.conversion.sourceFileHash) {
+            officeSnapshotStatus = 'stale'
+            status = status === 'error' ? 'error' : 'warning'
+            messages.push(
+              createValidationMessage(
+                'office-snapshot-stale',
+                'warning',
+                `Office 原件《${source.originalFileName}》自上次转换后已发生变化，当前预览和导出仍使用旧 PDF 快照。`,
+                '请检查原件后点击“重新转换 Office 快照”。',
+              ),
+            )
+          } else {
+            officeSnapshotStatus = 'ready'
+          }
+        } else if (metadataChanged) {
           status = status === 'error' ? 'error' : 'warning'
           messages.push(
             createValidationMessage(
@@ -222,13 +304,97 @@ export const validateProjectFiles = async (
           ),
         )
       }
+      if (material.sourceType === 'office') {
+        const snapshot = source.conversion
+        if (!snapshot) {
+          officeSnapshotStatus = 'error'
+          status = 'error'
+          messages.push(
+            createValidationMessage(
+              'office-snapshot-missing',
+              'error',
+              `Office 材料《${material.title}》缺少 PDF 转换快照。`,
+              '请重新转换 Office 文件。',
+            ),
+          )
+          continue
+        }
+        const snapshotPath = resolve(projectDirectory, snapshot.pdfStoredPath)
+        const snapshotRelative = relative(projectDirectory, snapshotPath)
+        if (snapshotRelative.startsWith('..') || isAbsolute(snapshotRelative)) {
+          officeSnapshotStatus = 'error'
+          status = 'error'
+          messages.push(
+            createValidationMessage(
+              'office-snapshot-path-invalid',
+              'error',
+              `Office 材料《${material.title}》的转换快照路径越界。`,
+              '请重新导入或修复项目配置。',
+            ),
+          )
+          continue
+        }
+        try {
+          const snapshotStat = await stat(snapshotPath)
+          if (!snapshotStat.isFile() || snapshotStat.size !== snapshot.fileSize) {
+            throw new Error('快照大小不一致')
+          }
+        } catch {
+          officeSnapshotStatus = 'error'
+          status = 'error'
+          messages.push(
+            createValidationMessage(
+              'office-snapshot-invalid',
+              'error',
+              `Office 材料《${material.title}》的 PDF 转换快照不存在或已损坏。`,
+              '请点击“重新转换 Office 快照”。',
+            ),
+          )
+        }
+      }
     }
     checks.push({
       materialId: material.id,
       materialTitle: material.title,
       status,
       messages,
+      ...(officeSnapshotStatus ? { officeSnapshotStatus } : {}),
     })
   }
   return checks
+}
+
+const isLiveFileMessage = (message: ValidationMessage): boolean =>
+  message.code === 'source-changed' ||
+  message.code === 'source-missing' ||
+  message.code === 'invalid-reference-path' ||
+  message.code.startsWith('office-snapshot-')
+
+export const synchronizeProjectFileStatuses = async (
+  projectDirectory: string,
+  project: Project,
+): Promise<Project> => {
+  const updated = structuredClone(project)
+  const checks = await validateProjectFiles(projectDirectory, updated)
+  const materials = updated.outlineNodes.flatMap((node) =>
+    node.children.flatMap((child) => child.materials),
+  )
+  for (const check of checks) {
+    const material = materials.find((candidate) => candidate.id === check.materialId)
+    if (!material) continue
+    const persistentMessages = material.validationMessages.filter(
+      (message) => !isLiveFileMessage(message),
+    )
+    const messages = [...persistentMessages, ...check.messages]
+    material.validationMessages = messages
+    material.validationStatus =
+      check.status === 'valid' && messages.some((message) => message.severity === 'warning')
+        ? 'warning'
+        : check.status
+    if (material.sourceType === 'office' && check.officeSnapshotStatus) {
+      const conversion = material.sourceItems[0]?.conversion
+      if (conversion) conversion.snapshotStatus = check.officeSnapshotStatus
+    }
+  }
+  return updated
 }

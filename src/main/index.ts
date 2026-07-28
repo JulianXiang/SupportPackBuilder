@@ -19,6 +19,7 @@ import { registerSystemIpc } from './ipc/system-ipc.js'
 import { initializeLogService, appLog } from './services/log-service.js'
 import { createMainWindow, loadMainWindow } from './windows/main-window.js'
 import { PrintWindowService } from './windows/print-window.js'
+import { resolveLibreOfficeExecutable } from './services/libreoffice-runtime.js'
 import { IPC_CHANNELS } from '../shared/constants/ipc.js'
 import { AppCloseResponseInputSchema, AppDirtyInputSchema } from '../shared/schemas/ipc-schema.js'
 import type { AppCommand } from '../preload/api-types.js'
@@ -193,12 +194,18 @@ const start = async (): Promise<void> => {
   const boldFontPath = app.isPackaged
     ? join(process.resourcesPath, 'fonts', 'SupportPackSansSC-Bold.ttf')
     : join(app.getAppPath(), 'resources', 'public', 'fonts', 'SupportPackSansSC-Bold.ttf')
+  const libreOfficeExecutable = await resolveLibreOfficeExecutable({
+    appPath: app.getAppPath(),
+    resourcesPath: process.resourcesPath,
+    packaged: app.isPackaged,
+  })
   const appRuntime = new AppRuntime({
     mainWindow: window,
     printWindow,
     workerDirectory: currentDirectory,
     fontPath,
     boldFontPath,
+    libreOfficeExecutable,
   })
   runtime = appRuntime
   registerProjectIpc({ mainWindow: window, runtime: appRuntime })

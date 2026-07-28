@@ -2,7 +2,11 @@ import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import { IPC_CHANNELS } from '../shared/constants/ipc.js'
 import type { ProjectCreateInput } from '../shared/schemas/ipc-schema.js'
 import type { ExportProgress, ExportResult } from '../shared/types/export.js'
-import type { ImportAnalysis, ImportCommitInput } from '../shared/types/import.js'
+import type {
+  ImportAnalysis,
+  ImportAnalysisProgress,
+  ImportCommitInput,
+} from '../shared/types/import.js'
 import type { Result } from '../shared/types/result.js'
 import type { AppCommand, SupportPackApi } from './api-types.js'
 
@@ -55,6 +59,19 @@ const api: SupportPackApi = {
     selectFiles: async () => await invoke(IPC_CHANNELS.importSelect),
     selectFolder: async () => await invoke(IPC_CHANNELS.importFolder),
     commit: async (input: ImportCommitInput) => await invoke(IPC_CHANNELS.importCommit, input),
+    cancelAnalysis: async (identifier) =>
+      await invoke(IPC_CHANNELS.importCancelAnalysis, { identifier }),
+    reconvertOffice: async (input) => await invoke(IPC_CHANNELS.importReconvertOffice, input),
+    onAnalysisProgress: (callback) => {
+      const listener = (
+        _event: Electron.IpcRendererEvent,
+        progress: ImportAnalysisProgress,
+      ): void => {
+        callback(progress)
+      }
+      ipcRenderer.on(IPC_CHANNELS.importAnalysisProgress, listener)
+      return () => ipcRenderer.removeListener(IPC_CHANNELS.importAnalysisProgress, listener)
+    },
     onDropped: (callback) => {
       droppedCallbacks.add(callback)
       return () => droppedCallbacks.delete(callback)

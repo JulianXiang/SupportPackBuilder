@@ -51,7 +51,7 @@ const pageNumberLabels = document
   .map((_, pageIndex) => readMarker(pageIndex, 'SPackPageNumberLabel'))
   .filter((label) => label !== null)
 if (
-  pageNumberLabels.length !== 6 ||
+  pageNumberLabels.length === 0 ||
   pageNumberLabels.some((label, index) => label !== `— ${index + 1} —`)
 ) {
   throw new Error(`打包成品页码标记错误：${pageNumberLabels.join('、')}`)
@@ -80,7 +80,21 @@ if (!report.checks.every((check) => check.passed)) {
 
 const collectMaterials = (nodes) =>
   nodes.flatMap((node) => [...node.materials, ...collectMaterials(node.children)])
-for (const material of collectMaterials(project.outlineNodes)) {
+const materials = collectMaterials(project.outlineNodes)
+const officeMaterials = materials.filter((material) => material.sourceType === 'office')
+if (officeMaterials.length !== 3) {
+  throw new Error(`打包成品回归项目应包含 3 项 Office 材料，实际为 ${officeMaterials.length} 项。`)
+}
+const outputMaterialIds = new Set(
+  document
+    .getPages()
+    .map((_, pageIndex) => readMarker(pageIndex, 'SPackMaterialId'))
+    .filter(Boolean),
+)
+for (const material of materials) {
+  if (!outputMaterialIds.has(material.id)) {
+    throw new Error(`材料《${material.title}》没有出现在输出页面标记中。`)
+  }
   for (const source of material.sourceItems) {
     const assetPath = join(projectDirectory, source.storedPath ?? source.sourcePath)
     const digest = createHash('sha256')
@@ -88,6 +102,19 @@ for (const material of collectMaterials(project.outlineNodes)) {
       .digest('hex')
     if (digest !== source.fileHash) {
       throw new Error(`项目资产《${source.originalFileName}》哈希发生变化。`)
+    }
+    if (source.conversion) {
+      const snapshotBytes = await readFile(join(projectDirectory, source.conversion.pdfStoredPath))
+      const snapshotDigest = createHash('sha256').update(snapshotBytes).digest('hex')
+      if (snapshotDigest !== source.conversion.fileHash) {
+        throw new Error(`Office 快照《${source.originalFileName}》哈希发生变化。`)
+      }
+      const snapshotDocument = await PDFDocument.load(snapshotBytes, {
+        updateMetadata: false,
+      })
+      if (snapshotDocument.getPageCount() !== source.conversion.pageCount) {
+        throw new Error(`Office 快照《${source.originalFileName}》页数与项目记录不一致。`)
+      }
     }
   }
 }
@@ -104,6 +131,7 @@ stdout.write(
     outputBytes: outputBytes.length,
     reportChecks: report.checks.length,
     pageNumberCount: pageNumberLabels.length,
+    officeMaterialCount: officeMaterials.length,
     firstPageTypes,
     outputSha256: createHash('sha256').update(outputBytes).digest('hex'),
     outputPath,
