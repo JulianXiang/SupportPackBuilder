@@ -65,6 +65,7 @@ export type SupportPackApi = {
     cancelAnalysis(identifier: string): Promise<Result<void>>
     reconvertOffice(input: {
       materialId: string
+      sourceId?: string
       confirmPageReset: boolean
     }): Promise<Result<OfficeReconversionResult>>
     onAnalysisProgress(callback: (progress: ImportAnalysisProgress) => void): () => void
@@ -81,6 +82,17 @@ export type SupportPackApi = {
       planFingerprint: string
       width: number
     }): Promise<Result<{ url: string | null }>>
+    sourceThumbnail(input: {
+      sourcePageId: string
+      planFingerprint: string
+      width: number
+    }): Promise<Result<{ url: string | null }>>
+    detectCrop(input: { sourcePageId: string; planFingerprint: string }): Promise<
+      Result<{
+        cropRect: { x: number; y: number; width: number; height: number }
+        message: string
+      }>
+    >
     refresh(): Promise<Result<PagePlan>>
   }
   export: {

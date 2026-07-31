@@ -29,6 +29,7 @@ import { useEffect, useState } from 'react'
 import type { PagePlan, PlannedPage } from '../../../../shared/schemas/page-plan-schema.js'
 import type {
   Material,
+  MaterialSource,
   OutlineNode,
   Project,
   Rotation,
@@ -36,7 +37,11 @@ import type {
 import { parsePageRange } from '../../../../shared/utils/page-range.js'
 import { stripSequencePrefix } from '../../../../shared/utils/sequence-label.js'
 import type { Selection } from '../../stores/project-store.js'
-import { findMaterial, findOutlineNode } from '../../utils/project.js'
+import {
+  findMaterial,
+  findOutlineNode,
+  removeMaterialsFromLayoutSheets,
+} from '../../utils/project.js'
 
 type CommitInputProps = {
   id?: string
@@ -73,7 +78,7 @@ type InspectorPanelProps = {
   onImportPortable: () => void
   onClearCache: () => void
   onRelocate: (materialId: string, sourceId: string) => void
-  onReconvertOffice: (materialId: string) => void
+  onReconvertOffice: (materialId: string, sourceId?: string) => void
 }
 
 const PanelTitle = ({
@@ -398,6 +403,129 @@ const ProjectInspector = ({
         </Form.Item>
       </Form>
       <Divider />
+      <Typography.Text strong>多图拼版默认设置</Typography.Text>
+      <Typography.Paragraph type="secondary" className="maintenance-help">
+        自动建议只创建可继续调整的草稿；最终清晰度仍以每个内容槽的检查结果为准。
+      </Typography.Paragraph>
+      <div className="switch-row">
+        <span>启用多图拼版</span>
+        <Switch
+          checked={project.collageSettings.enabled}
+          onChange={(checked) =>
+            onMutate((draft) => {
+              draft.collageSettings.enabled = checked
+            })
+          }
+        />
+      </div>
+      <div className="switch-row">
+        <span>允许保守自动去白边</span>
+        <Switch
+          checked={project.collageSettings.autoCropEnabled}
+          onChange={(checked) =>
+            onMutate((draft) => {
+              draft.collageSettings.autoCropEnabled = checked
+            })
+          }
+        />
+      </div>
+      <Form layout="vertical" size="small">
+        <Form.Item label="新拼版页默认方向">
+          <Select
+            value={project.collageSettings.defaultOrientation}
+            options={[
+              { value: 'portrait', label: 'A4 纵向' },
+              { value: 'landscape', label: 'A4 横向' },
+            ]}
+            onChange={(value) =>
+              onMutate((draft) => {
+                draft.collageSettings.defaultOrientation = value
+              })
+            }
+          />
+        </Form.Item>
+        <Form.Item label="自动去白边安全边（mm）">
+          <InputNumber
+            min={0}
+            max={20}
+            step={0.5}
+            value={project.collageSettings.autoCropSafetyMillimeters}
+            onChange={(value) =>
+              value !== null &&
+              onMutate((draft) => {
+                draft.collageSettings.autoCropSafetyMillimeters = value
+              })
+            }
+          />
+        </Form.Item>
+        <Form.Item
+          label="图片清晰度（推荐 / 最低 DPI）"
+          extra="低于最低值的自动拼版会被阻止；手动拼版必须逐槽确认风险。"
+        >
+          <Space.Compact>
+            <InputNumber
+              min={72}
+              max={600}
+              precision={0}
+              value={project.collageSettings.rasterPreferredDpi}
+              onChange={(value) =>
+                value !== null &&
+                value >= project.collageSettings.rasterMinimumAutoDpi &&
+                onMutate((draft) => {
+                  draft.collageSettings.rasterPreferredDpi = value
+                })
+              }
+            />
+            <InputNumber
+              min={72}
+              max={project.collageSettings.rasterPreferredDpi}
+              precision={0}
+              value={project.collageSettings.rasterMinimumAutoDpi}
+              onChange={(value) =>
+                value !== null &&
+                value <= project.collageSettings.rasterPreferredDpi &&
+                onMutate((draft) => {
+                  draft.collageSettings.rasterMinimumAutoDpi = value
+                })
+              }
+            />
+          </Space.Compact>
+        </Form.Item>
+        <Form.Item
+          label="PDF 缩放（警告 / 最低）"
+          extra="例如 0.50 表示来源页按 50% 线性比例输出。"
+        >
+          <Space.Compact>
+            <InputNumber
+              min={0.1}
+              max={1}
+              step={0.05}
+              value={project.collageSettings.pdfWarningScale}
+              onChange={(value) =>
+                value !== null &&
+                value >= project.collageSettings.pdfMinimumAutoScale &&
+                onMutate((draft) => {
+                  draft.collageSettings.pdfWarningScale = value
+                })
+              }
+            />
+            <InputNumber
+              min={0.1}
+              max={project.collageSettings.pdfWarningScale}
+              step={0.05}
+              value={project.collageSettings.pdfMinimumAutoScale}
+              onChange={(value) =>
+                value !== null &&
+                value <= project.collageSettings.pdfWarningScale &&
+                onMutate((draft) => {
+                  draft.collageSettings.pdfMinimumAutoScale = value
+                })
+              }
+            />
+          </Space.Compact>
+        </Form.Item>
+      </Form>
+      <Divider />
       <Typography.Text strong>项目维护</Typography.Text>
       <Space wrap className="project-maintenance-actions">
         <Button icon={<ExportOutlined />} onClick={onExportPortable}>
@@ -489,6 +617,85 @@ const OutlineInspector = ({
   </>
 )
 
+const MaterialSourceEditor = ({
+  material,
+  source,
+  onMutate,
+  onRelocate,
+  onReconvertOffice,
+}: {
+  material: Material
+  source: MaterialSource
+  onMutate: InspectorPanelProps['onMutate']
+  onRelocate: InspectorPanelProps['onRelocate']
+  onReconvertOffice: InspectorPanelProps['onReconvertOffice']
+}): React.JSX.Element => {
+  const [rangeValue, setRangeValue] = useState(source.selectedPageRanges)
+  useEffect(() => setRangeValue(source.selectedPageRanges), [source.id, source.selectedPageRanges])
+  const pageCount = source.conversion?.pageCount ?? source.pageCount
+  const parsedRange = source.sourceType === 'image' ? null : parsePageRange(rangeValue, pageCount)
+  return (
+    <div className="material-source-editor">
+      <div className="material-source-editor-heading">
+        <div>
+          <strong>{source.originalFileName}</strong>
+          <small>
+            {source.sourceType === 'pdf'
+              ? `PDF · ${pageCount} 页`
+              : source.sourceType === 'office'
+                ? `${source.conversion?.officeFormat.toUpperCase() ?? 'OFFICE'} 快照 · ${pageCount} 页`
+                : `图片 · ${source.width ?? '?'}×${source.height ?? '?'}`}
+          </small>
+        </div>
+        <Tag>{source.sourceType === 'office' ? 'Office' : source.sourceType.toUpperCase()}</Tag>
+      </div>
+      {source.sourceType !== 'image' && material.sourceItems.length > 1 && (
+        <div>
+          <label className="source-range-label">此来源使用页码</label>
+          <Input
+            size="small"
+            value={rangeValue}
+            status={parsedRange?.success === false ? 'error' : ''}
+            placeholder="例如 1-3,6 或 all"
+            onChange={(event) => setRangeValue(event.target.value)}
+            onBlur={() => {
+              if (!parsedRange?.success || rangeValue === source.selectedPageRanges) return
+              onMutate((draft) => {
+                const found = findMaterial(draft, material.id)
+                const targetSource = found?.material.sourceItems.find(
+                  (candidate) => candidate.id === source.id,
+                )
+                if (targetSource) targetSource.selectedPageRanges = rangeValue
+              })
+            }}
+          />
+          {parsedRange?.success === false && (
+            <Typography.Text type="danger">{parsedRange.errors[0]?.message}</Typography.Text>
+          )}
+        </div>
+      )}
+      <Space wrap>
+        <Button
+          size="small"
+          icon={<FileSearchOutlined />}
+          onClick={() => onRelocate(material.id, source.id)}
+        >
+          重新定位
+        </Button>
+        {source.sourceType === 'office' && (
+          <Button
+            size="small"
+            icon={<RollbackOutlined />}
+            onClick={() => onReconvertOffice(material.id, source.id)}
+          >
+            重新转换快照
+          </Button>
+        )}
+      </Space>
+    </div>
+  )
+}
+
 const MaterialInspector = ({
   project,
   material,
@@ -529,6 +736,7 @@ const MaterialInspector = ({
                 child.materials = child.materials.filter((item) => item.id !== material.id)
               }),
             )
+            removeMaterialsFromLayoutSheets(draft, [material.id])
           },
           { kind: 'project', id: project.id },
         ),
@@ -684,9 +892,11 @@ const MaterialInspector = ({
                   ? 'PDF'
                   : material.sourceType === 'office'
                     ? `Office（${material.sourceItems[0]?.conversion?.officeFormat.toUpperCase() ?? '未知'}）`
-                    : material.sourceType === 'imageCollection'
-                      ? '图片集合'
-                      : '图片',
+                    : material.sourceType === 'mixed'
+                      ? `混合来源（${material.sourceItems.length} 个文件）`
+                      : material.sourceType === 'imageCollection'
+                        ? '图片集合'
+                        : '图片',
             },
             { key: 'name', label: '原始文件', children: material.originalFileName },
             { key: 'pages', label: '原始页数', children: material.pageCount },
@@ -748,20 +958,16 @@ const MaterialInspector = ({
         <Typography.Text strong>来源文件维护</Typography.Text>
         <Space orientation="vertical" className="source-maintenance-list">
           {material.sourceItems.map((source) => (
-            <Button
+            <MaterialSourceEditor
               key={source.id}
-              icon={<FileSearchOutlined />}
-              onClick={() => onRelocate(material.id, source.id)}
-            >
-              重新定位：{source.originalFileName}
-            </Button>
+              material={material}
+              source={source}
+              onMutate={onMutate}
+              onRelocate={onRelocate}
+              onReconvertOffice={onReconvertOffice}
+            />
           ))}
         </Space>
-        {material.sourceType === 'office' ? (
-          <Button icon={<RollbackOutlined />} onClick={() => onReconvertOffice(material.id)}>
-            重新转换 Office 快照
-          </Button>
-        ) : null}
         {material.removedPages.length > 0 && (
           <Alert
             className="validation-alert"

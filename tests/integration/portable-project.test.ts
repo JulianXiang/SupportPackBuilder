@@ -14,7 +14,8 @@ import {
   createProjectDirectory,
   writeProjectAtomically,
 } from '../../src/main/services/project-service.js'
-import { createProjectFixture } from '../helpers/project-fixture.js'
+import { createLayoutSection, createLayoutSheet } from '../../src/shared/utils/layout-tree.js'
+import { createProjectFixture, IDS } from '../helpers/project-fixture.js'
 
 const temporaryDirectories: string[] = []
 
@@ -43,6 +44,15 @@ describe('便携项目包', () => {
     material.sourcePath = externalPath
     material.storedPath = null
     material.fileSize = sourceBytes.length
+    const section = createLayoutSection(material.id, [`${source.id}:0`], 'two-up')
+    project.layoutSheets = [
+      createLayoutSheet({
+        anchorSourcePageId: `${source.id}:0`,
+        sections: [section],
+        order: 0,
+        project,
+      }),
+    ]
 
     const session = await createProjectDirectory(parent, project)
     session.project = await writeProjectAtomically(session.projectDirectory, project)
@@ -52,6 +62,8 @@ describe('便携项目包', () => {
 
     expect(exported.assetCount).toBe(1)
     expect(imported.project.assetStorageMode).toBe('copy')
+    expect(imported.project.layoutSheets).toEqual(project.layoutSheets)
+    expect(imported.project.layoutSheets[0]?.sections[0]?.materialId).toBe(IDS.material)
     const importedMaterial = imported.project.outlineNodes[0]?.children[0]?.materials[0]
     const importedSource = importedMaterial?.sourceItems[0]
     expect(importedSource?.storedPath).toMatch(/^assets\//)

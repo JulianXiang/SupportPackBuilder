@@ -45,6 +45,7 @@ describe('300 页性能烟测', () => {
     const sourceStat = await stat(sourcePath)
     const source = {
       id: '00000000-0000-4000-8000-000000000105',
+      sourceType: 'pdf' as const,
       sourcePath,
       storedPath: null,
       originalFileName: 'source-300-pages.pdf',
@@ -53,6 +54,7 @@ describe('300 页性能烟测', () => {
       modifiedTime: sourceStat.mtimeMs,
       mimeType: 'application/pdf',
       pageCount: 300,
+      selectedPageRanges: 'all',
     }
     const material = createMaterialFixture({
       sourcePath,

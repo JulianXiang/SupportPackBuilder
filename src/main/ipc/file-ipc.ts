@@ -105,11 +105,14 @@ export const registerFileIpc = (input: {
     mainWindow,
     handler: async (value) => {
       const session = runtime.requireSession()
-      const result = await runtime.importService.commit(
-        session.projectDirectory,
-        session.project,
-        value,
-      )
+      const result = await runtime.importService.commit(session.projectDirectory, session.project, {
+        token: value.token,
+        targetOutlineNodeId: value.targetOutlineNodeId,
+        materialGrouping: value.materialGrouping,
+        imageGrouping: value.imageGrouping,
+        resolutions: value.resolutions,
+        ...(value.groupedMaterialTitle ? { groupedMaterialTitle: value.groupedMaterialTitle } : {}),
+      })
       session.project = result.project
       session.revision += 1
       runtime.dirty = true
@@ -132,12 +135,13 @@ export const registerFileIpc = (input: {
     schema: ImportReconvertOfficeInputSchema,
     stage: '重新转换 Office 文件',
     mainWindow,
-    handler: async ({ materialId, confirmPageReset }) => {
+    handler: async ({ materialId, sourceId, confirmPageReset }) => {
       const session = runtime.requireSession()
       const result = await runtime.importService.reconvertOffice(
         session.projectDirectory,
         session.project,
         materialId,
+        sourceId,
         confirmPageReset,
       )
       if (result.status === 'completed') {

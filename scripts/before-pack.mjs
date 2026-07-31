@@ -1,6 +1,7 @@
 import { spawn } from 'node:child_process'
 import { access, readFile, readdir } from 'node:fs/promises'
 import { basename, join, resolve } from 'node:path'
+import { env } from 'node:process'
 
 const VERSION = '26.2.5'
 
@@ -10,6 +11,10 @@ const run = async (executable, arguments_) =>
       shell: false,
       windowsHide: true,
       stdio: ['ignore', 'pipe', 'pipe'],
+      env: {
+        ...env,
+        PYTHONDONTWRITEBYTECODE: '1',
+      },
     })
     let output = ''
     child.stdout.on('data', (chunk) => {

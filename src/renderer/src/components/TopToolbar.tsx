@@ -30,7 +30,7 @@ export const TopToolbar = (props: TopToolbarProps): React.JSX.Element => (
       <div className="brand-mark">SP</div>
       <div>
         <div className="brand-title">个人支撑材料编排器</div>
-        <div className="brand-subtitle">SupportPack Builder</div>
+        <div className="brand-subtitle">SupportPackBuilder</div>
       </div>
     </div>
     <Divider orientation="vertical" className="toolbar-divider" />

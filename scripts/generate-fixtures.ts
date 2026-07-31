@@ -108,7 +108,7 @@ const createPdf = async (input: {
     }
   })
   document.setTitle(input.label)
-  document.setCreator('SupportPack Builder 测试夹具生成器')
+  document.setCreator('SupportPackBuilder 测试夹具生成器')
   document.setProducer('pdf-lib')
   await writeFile(input.outputPath, await document.save())
 }
@@ -174,7 +174,7 @@ const createDocxFixture = async (outputPath: string): Promise<void> => {
     .png()
     .toBuffer()
   const document = new Document({
-    creator: 'SupportPack Builder 测试夹具生成器',
+    creator: 'SupportPackBuilder 测试夹具生成器',
     title: 'DOCX 多页中文支撑材料夹具',
     sections: [
       {
@@ -257,10 +257,10 @@ const createDocxFixture = async (outputPath: string): Promise<void> => {
 const createPptxFixture = async (outputPath: string): Promise<void> => {
   const presentation = new PptxGen()
   presentation.layout = 'LAYOUT_WIDE'
-  presentation.author = 'SupportPack Builder 测试夹具生成器'
+  presentation.author = 'SupportPackBuilder 测试夹具生成器'
   presentation.subject = 'PPTX 可见与隐藏幻灯片转换测试'
   presentation.title = 'PPTX 支撑材料夹具'
-  presentation.company = 'SupportPack Builder'
+  presentation.company = 'SupportPackBuilder'
   presentation.lang = 'zh-CN'
   const colors = ['DCE8F1', 'E7E2D5']
   for (let index = 0; index < 2; index += 1) {
@@ -379,7 +379,7 @@ const removeXlsxPrintSettings = async (sourcePath: string, outputPath: string): 
 
 const createXlsxFixture = async (outputPath: string, withPrintSettings: boolean): Promise<void> => {
   const workbook = new ExcelJS.Workbook()
-  workbook.creator = 'SupportPack Builder 测试夹具生成器'
+  workbook.creator = 'SupportPackBuilder 测试夹具生成器'
   workbook.title = withPrintSettings ? '带打印区域的 XLSX 夹具' : '无打印设置的 XLSX 夹具'
   const first = workbook.addWorksheet('成果清单')
   populateWorksheet(first, 42)

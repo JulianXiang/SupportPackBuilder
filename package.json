@@ -1,10 +1,10 @@
 {
-  "name": "support-pack-builder",
-  "version": "0.1.0",
+  "name": "supportpackbuilder",
+  "version": "0.2.0",
   "description": "个人支撑材料编排器：完全本地运行的支撑材料 PDF 编排与导出工具",
   "type": "module",
   "main": "./out/main/index.cjs",
-  "author": "SupportPack Builder Contributors",
+  "author": "SupportPackBuilder Contributors",
   "license": "MIT",
   "engines": {
     "node": ">=24 <27",

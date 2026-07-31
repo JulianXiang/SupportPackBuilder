@@ -62,18 +62,23 @@ const verifyOutput = async (
     passed: document.getPageCount() === request.plan.totalPageCount,
     detail: `计划 ${request.plan.totalPageCount} 页，实际 ${document.getPageCount()} 页`,
   })
-  const expectedSize =
-    request.project.exportSettings.targetOrientation === 'portrait'
-      ? A4_SIZE_POINTS
-      : { width: A4_SIZE_POINTS.height, height: A4_SIZE_POINTS.width }
   const nonA4Pages: number[] = []
   const actualMarkers: (string | null)[] = []
   const actualMaterialMarkers: (string | null)[] = []
   const actualOutlineMarkers: (string | null)[] = []
   const actualInlineHeadingMarkers: (string | null)[] = []
+  const actualMaterialIdArrays: (string | null)[] = []
+  const actualOutlineIdArrays: (string | null)[] = []
+  const actualLayoutDigests: (string | null)[] = []
+  const actualSourcePageIdArrays: (string | null)[] = []
   const actualPageNumberLabels: (string | null)[] = []
   let pageNumberMarkerCount = 0
   document.getPages().forEach((page, index) => {
+    const plannedPage = request.plan.pages[index]
+    const expectedSize =
+      plannedPage?.targetOrientation === 'landscape'
+        ? { width: A4_SIZE_POINTS.height, height: A4_SIZE_POINTS.width }
+        : A4_SIZE_POINTS
     if (
       Math.abs(page.getWidth() - expectedSize.width) > A4_SIZE_TOLERANCE_POINTS ||
       Math.abs(page.getHeight() - expectedSize.height) > A4_SIZE_TOLERANCE_POINTS
@@ -84,6 +89,10 @@ const verifyOutput = async (
     actualMaterialMarkers.push(readMarker(document, index, 'SPackMaterialId'))
     actualOutlineMarkers.push(readMarker(document, index, 'SPackOutlineNodeId'))
     actualInlineHeadingMarkers.push(readMarker(document, index, 'SPackInlineHeadings'))
+    actualMaterialIdArrays.push(readMarker(document, index, 'SPackMaterialIds'))
+    actualOutlineIdArrays.push(readMarker(document, index, 'SPackOutlineNodeIds'))
+    actualLayoutDigests.push(readMarker(document, index, 'SPackLayoutDigest'))
+    actualSourcePageIdArrays.push(readMarker(document, index, 'SPackSourcePageIds'))
     actualPageNumberLabels.push(readMarker(document, index, 'SPackPageNumberLabel'))
     if (readMarker(document, index, 'SPackPageNumber') === 'true') {
       pageNumberMarkerCount += 1
@@ -120,7 +129,18 @@ const verifyOutput = async (
   const semanticMarkersMatch = request.plan.pages.every(
     (page, index) =>
       actualMaterialMarkers[index] === page.materialId &&
-      actualOutlineMarkers[index] === page.outlineNodeId,
+      actualOutlineMarkers[index] === page.outlineNodeId &&
+      actualMaterialIdArrays[index] === JSON.stringify(page.materialIds) &&
+      actualOutlineIdArrays[index] === JSON.stringify(page.outlineNodeIds) &&
+      actualLayoutDigests[index] === (page.composite?.layoutDigest ?? null) &&
+      actualSourcePageIdArrays[index] ===
+        JSON.stringify(
+          page.composite
+            ? page.composite.contentItems.map((item) => item.sourcePageId)
+            : page.sourcePageId
+              ? [page.sourcePageId]
+              : [],
+        ),
   )
   checks.push({
     code: 'semantic-page-markers',
@@ -161,9 +181,7 @@ const verifyOutput = async (
     .flatMap((node) => node.children.filter((child) => child.enabled))
     .flatMap((node) => node.materials.filter((material) => material.enabled))
     .map((material) => material.id)
-  const plannedMaterialIds = new Set(
-    request.plan.pages.map((page) => page.materialId).filter((id): id is string => id !== null),
-  )
+  const plannedMaterialIds = new Set(request.plan.pages.flatMap((page) => page.materialIds))
   const omittedMaterials = enabledMaterialIds.filter((id) => !plannedMaterialIds.has(id))
   checks.push({
     code: 'enabled-materials',
@@ -245,12 +263,15 @@ export const executePdfExport = async (
       request.project,
       request.fontPath,
     )
-    const hasInlineHeadings = request.plan.pages.some((page) => page.inlineHeadings.length > 0)
+    const hasInlineHeadings = request.plan.pages.some(
+      (page) => page.inlineHeadings.length > 0 || page.pageType === 'compositeContent',
+    )
     const inlineHeadingFont = hasInlineHeadings
       ? await prepareInlineHeadingFont(outputDocument, request.boldFontPath)
       : null
     let currentPdfPath: string | null = null
     let currentPdfDocument: PDFDocument | null = null
+    const compositeSourceDocuments = new Map<string, PDFDocument>()
 
     for (const [index, plannedPage] of request.plan.pages.entries()) {
       checkCancellation(options)
@@ -265,6 +286,18 @@ export const executePdfExport = async (
         })
       } else if (plannedPage.pageType === 'blank') {
         outputPage = appendBlankPage(outputDocument, request.project)
+      } else if (plannedPage.pageType === 'compositeContent') {
+        if (!inlineHeadingFont) {
+          throw new Error(`拼版页“${plannedPage.displayTitle}”缺少中文字体。`)
+        }
+        outputPage = await appendPlannedContentPage({
+          targetDocument: outputDocument,
+          projectDirectory: request.projectDirectory,
+          plannedPage,
+          project: request.project,
+          inlineHeadingFont,
+          sourceDocuments: compositeSourceDocuments,
+        })
       } else if (plannedPage.pageType === 'pdfContent') {
         if (!plannedPage.materialId || !plannedPage.sourceId) {
           throw new Error(`页面“${plannedPage.displayTitle}”缺少 PDF 来源。`)
@@ -315,7 +348,7 @@ export const executePdfExport = async (
         stage:
           plannedPage.pageType === 'imageContent'
             ? 'image'
-            : plannedPage.pageType === 'pdfContent'
+            : plannedPage.pageType === 'pdfContent' || plannedPage.pageType === 'compositeContent'
               ? 'pdf'
               : plannedPage.pageType === 'toc'
                 ? 'toc'
@@ -325,7 +358,9 @@ export const executePdfExport = async (
             ? '正在处理图片'
             : plannedPage.pageType === 'pdfContent'
               ? '正在处理 PDF'
-              : '正在合并正式页面',
+              : plannedPage.pageType === 'compositeContent'
+                ? '正在合成多图拼版'
+                : '正在合并正式页面',
         currentMaterial: plannedPage.displayTitle,
         currentFile: plannedPage.sourceFile
           ? basename(plannedPage.sourceFile)

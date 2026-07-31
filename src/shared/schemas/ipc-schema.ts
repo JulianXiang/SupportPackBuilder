@@ -37,22 +37,34 @@ export const RecentProjectRemoveInputSchema = z.object({
 
 export const RecentProjectOpenInputSchema = RecentProjectRemoveInputSchema
 
-export const ImportCommitInputSchema = z.object({
-  token: z.uuid(),
-  targetOutlineNodeId: z.uuid(),
-  imageGrouping: z.enum(['separate', 'collection']),
-  resolutions: z.array(
-    z.discriminatedUnion('action', [
-      z.object({ candidateId: z.uuid(), action: z.literal('import') }),
-      z.object({ candidateId: z.uuid(), action: z.literal('skip') }),
-      z.object({
-        candidateId: z.uuid(),
-        action: z.literal('replace'),
-        materialId: z.uuid(),
-      }),
-    ]),
-  ),
-})
+export const ImportCommitInputSchema = z
+  .object({
+    token: z.uuid(),
+    targetOutlineNodeId: z.uuid(),
+    materialGrouping: z.enum(['separate', 'singleResult']).default('separate'),
+    groupedMaterialTitle: z.string().trim().min(1).max(300).optional(),
+    imageGrouping: z.enum(['separate', 'collection']),
+    resolutions: z.array(
+      z.discriminatedUnion('action', [
+        z.object({ candidateId: z.uuid(), action: z.literal('import') }),
+        z.object({ candidateId: z.uuid(), action: z.literal('skip') }),
+        z.object({
+          candidateId: z.uuid(),
+          action: z.literal('replace'),
+          materialId: z.uuid(),
+        }),
+      ]),
+    ),
+  })
+  .superRefine((input, context) => {
+    if (input.materialGrouping === 'singleResult' && !input.groupedMaterialTitle) {
+      context.addIssue({
+        code: 'custom',
+        path: ['groupedMaterialTitle'],
+        message: '合并为同一项成果时必须填写成果名称。',
+      })
+    }
+  })
 
 export const ImportCancelAnalysisInputSchema = z.object({
   identifier: z.uuid(),
@@ -60,6 +72,7 @@ export const ImportCancelAnalysisInputSchema = z.object({
 
 export const ImportReconvertOfficeInputSchema = z.object({
   materialId: z.uuid(),
+  sourceId: z.uuid().optional(),
   confirmPageReset: z.boolean().default(false),
 })
 
@@ -77,6 +90,17 @@ export const PreviewThumbnailInputSchema = z.object({
   pageId: z.string().min(1).max(500),
   planFingerprint: z.string().min(1).max(500),
   width: z.number().int().min(120).max(900),
+})
+
+export const PreviewSourceThumbnailInputSchema = z.object({
+  sourcePageId: z.string().min(1).max(500),
+  planFingerprint: z.string().min(1).max(500),
+  width: z.number().int().min(120).max(900),
+})
+
+export const PreviewDetectCropInputSchema = z.object({
+  sourcePageId: z.string().min(1).max(500),
+  planFingerprint: z.string().min(1).max(500),
 })
 
 export const ExportPreflightInputSchema = z.object({
@@ -110,3 +134,5 @@ export type ProjectCreateInput = z.infer<typeof ProjectCreateInputSchema>
 export type ProjectSaveInput = z.infer<typeof ProjectSaveInputSchema>
 export type PreviewPlanInput = z.infer<typeof PreviewPlanInputSchema>
 export type PreviewThumbnailInput = z.infer<typeof PreviewThumbnailInputSchema>
+export type PreviewSourceThumbnailInput = z.infer<typeof PreviewSourceThumbnailInputSchema>
+export type PreviewDetectCropInput = z.infer<typeof PreviewDetectCropInputSchema>

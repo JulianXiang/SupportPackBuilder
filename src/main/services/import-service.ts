@@ -348,6 +348,7 @@ export class ImportService {
           : null
         return {
           id: sourceId,
+          sourceType: candidate.sourceType,
           sourcePath: storedPath ?? candidate.originalPath,
           storedPath,
           originalFileName: candidate.originalFileName,
@@ -356,6 +357,7 @@ export class ImportService {
           modifiedTime: candidate.modifiedTime,
           mimeType: candidate.mimeType,
           pageCount: candidate.pageCount,
+          selectedPageRanges: 'all',
           ...(candidate.width ? { width: candidate.width } : {}),
           ...(candidate.height ? { height: candidate.height } : {}),
           ...(candidate.exifOrientation ? { exifOrientation: candidate.exifOrientation } : {}),
@@ -383,6 +385,7 @@ export class ImportService {
         candidates: ImportCandidate[],
         sources: MaterialSource[],
         sourceType: Material['sourceType'],
+        groupedTitle?: string,
       ): Material => {
         const now = new Date().toISOString()
         const firstCandidate = candidates[0]
@@ -398,16 +401,20 @@ export class ImportService {
           id: crypto.randomUUID(),
           outlineNodeId: target.id,
           title:
-            sourceType === 'imageCollection'
+            groupedTitle ??
+            (sourceType === 'imageCollection'
               ? `图片材料（${sources.length} 张）`
-              : basename(firstCandidate.originalFileName, extname(firstCandidate.originalFileName)),
+              : basename(
+                  firstCandidate.originalFileName,
+                  extname(firstCandidate.originalFileName),
+                )),
           category: target.title,
           sourceType,
           sourcePath: firstSource.sourcePath,
           storedPath: firstSource.storedPath,
           originalFileName:
-            sourceType === 'imageCollection'
-              ? `${firstSource.originalFileName} 等 ${sources.length} 张图片`
+            sources.length > 1
+              ? `${firstSource.originalFileName} 等 ${sources.length} 个文件`
               : firstSource.originalFileName,
           fileHash: sources.length === 1 ? firstSource.fileHash : compositeHash,
           fileSize: sources.reduce((total, source) => total + source.fileSize, 0),
@@ -418,7 +425,7 @@ export class ImportService {
           rotationByPage: {},
           removedPages: [],
           enabled: true,
-          startOnNewPage: true,
+          startPolicy: 'newSheet',
           insertTitlePage: false,
           notes: '',
           validationStatus: candidates.some((candidate) => candidate.validationStatus === 'warning')
@@ -435,33 +442,47 @@ export class ImportService {
       const imageCandidates = accepted.filter((candidate) => candidate.sourceType === 'image')
       const pdfCandidates = accepted.filter((candidate) => candidate.sourceType === 'pdf')
       const officeCandidates = accepted.filter((candidate) => candidate.sourceType === 'office')
-      if (input.imageGrouping === 'collection' && imageCandidates.length > 1) {
+      if (input.materialGrouping === 'singleResult' && accepted.length > 1) {
         const sources: MaterialSource[] = []
-        for (const candidate of imageCandidates) sources.push(await createSource(candidate))
-        createdMaterials.push(createMaterial(imageCandidates, sources, 'imageCollection'))
+        for (const candidate of accepted) sources.push(await createSource(candidate))
+        const sourceType: Material['sourceType'] = accepted.every(
+          (candidate) => candidate.sourceType === 'image',
+        )
+          ? 'imageCollection'
+          : 'mixed'
+        createdMaterials.push(
+          createMaterial(accepted, sources, sourceType, input.groupedMaterialTitle),
+        )
         importedMaterialIds.push(createdMaterials.at(-1)?.id ?? '')
       } else {
-        for (const candidate of imageCandidates) {
+        if (input.imageGrouping === 'collection' && imageCandidates.length > 1) {
+          const sources: MaterialSource[] = []
+          for (const candidate of imageCandidates) sources.push(await createSource(candidate))
+          createdMaterials.push(createMaterial(imageCandidates, sources, 'imageCollection'))
+          importedMaterialIds.push(createdMaterials.at(-1)?.id ?? '')
+        } else {
+          for (const candidate of imageCandidates) {
+            const source = await createSource(candidate)
+            const material = createMaterial([candidate], [source], 'image')
+            createdMaterials.push(material)
+            importedMaterialIds.push(material.id)
+          }
+        }
+        for (const candidate of pdfCandidates) {
           const source = await createSource(candidate)
-          const material = createMaterial([candidate], [source], 'image')
+          const material = createMaterial([candidate], [source], 'pdf')
           createdMaterials.push(material)
           importedMaterialIds.push(material.id)
         }
-      }
-      for (const candidate of pdfCandidates) {
-        const source = await createSource(candidate)
-        const material = createMaterial([candidate], [source], 'pdf')
-        createdMaterials.push(material)
-        importedMaterialIds.push(material.id)
-      }
-      for (const candidate of officeCandidates) {
-        const source = await createSource(candidate)
-        if (!source.conversion) {
-          throw new Error(`Office 文件《${candidate.originalFileName}》缺少转换快照。`)
+        for (const candidate of officeCandidates) {
+          const source = await createSource(candidate)
+          if (!source.conversion) {
+            throw new Error(`Office 文件《${candidate.originalFileName}》缺少转换快照。`)
+          }
+          const material = createMaterial([candidate], [source], 'office')
+          createdMaterials.push(material)
+          importedMaterialIds.push(material.id)
         }
-        const material = createMaterial([candidate], [source], 'office')
-        createdMaterials.push(material)
-        importedMaterialIds.push(material.id)
       }
 
       const updatedProject = structuredClone(project)
@@ -541,15 +562,18 @@ export class ImportService {
     projectDirectory: string,
     project: Project,
     materialId: string,
+    sourceId: string | undefined,
     confirmPageReset: boolean,
   ): Promise<OfficeReconversionResult> {
     const material = allProjectMaterials(project).find((candidate) => candidate.id === materialId)
-    if (material?.sourceType !== 'office') {
+    if (!material) {
       throw new Error('未找到可重新转换的 Office 材料。')
     }
-    const source = material.sourceItems[0]
+    const source = sourceId
+      ? material.sourceItems.find((candidate) => candidate.id === sourceId)
+      : material.sourceItems.find((candidate) => candidate.sourceType === 'office')
     const previousConversion = source?.conversion
-    if (!source || !previousConversion) {
+    if (source?.sourceType !== 'office' || !previousConversion) {
       throw new Error(`Office 材料《${material.title}》缺少原件或转换快照记录。`)
     }
     const sourcePath = resolveMaterialSourcePath(projectDirectory, material, source.id)
@@ -589,7 +613,9 @@ export class ImportService {
       const updatedMaterial = allProjectMaterials(updatedProject).find(
         (candidate) => candidate.id === materialId,
       )
-      const updatedSource = updatedMaterial?.sourceItems[0]
+      const updatedSource = updatedMaterial?.sourceItems.find(
+        (candidate) => candidate.id === source.id,
+      )
       if (!updatedMaterial || !updatedSource) throw new Error('重新转换后无法更新材料记录。')
       updatedSource.originalFileName = validated.source.originalFileName
       updatedSource.fileHash = validated.source.fileHash
@@ -610,10 +636,27 @@ export class ImportService {
         snapshotStatus: 'ready',
         warnings: conversion.warnings,
       }
-      updatedMaterial.fileHash = validated.source.fileHash
-      updatedMaterial.fileSize = validated.source.fileSize
-      updatedMaterial.modifiedTime = validated.source.modifiedTime
-      updatedMaterial.pageCount = conversion.pageCount
+      if (updatedMaterial.sourceItems.length === 1) {
+        updatedMaterial.fileHash = validated.source.fileHash
+        updatedMaterial.fileSize = validated.source.fileSize
+        updatedMaterial.modifiedTime = validated.source.modifiedTime
+        updatedMaterial.pageCount = conversion.pageCount
+      } else {
+        updatedMaterial.fileHash = createHash('sha256')
+          .update(updatedMaterial.sourceItems.map((item) => item.fileHash).join(':'))
+          .digest('hex')
+        updatedMaterial.fileSize = updatedMaterial.sourceItems.reduce(
+          (total, item) => total + item.fileSize,
+          0,
+        )
+        updatedMaterial.modifiedTime = Math.max(
+          ...updatedMaterial.sourceItems.map((item) => item.modifiedTime),
+        )
+        updatedMaterial.pageCount = updatedMaterial.sourceItems.reduce(
+          (total, item) => total + (item.conversion?.pageCount ?? item.pageCount),
+          0,
+        )
+      }
       updatedMaterial.validationMessages = [
         ...validated.validationMessages,
         ...officeConversionMessages(updatedSource.originalFileName, conversion),
@@ -624,13 +667,35 @@ export class ImportService {
         ? 'warning'
         : 'valid'
       if (pageCountChanged) {
-        updatedMaterial.selectedPageRanges = 'all'
-        updatedMaterial.pageOrder = Array.from(
+        updatedSource.selectedPageRanges = 'all'
+        if (updatedMaterial.sourceItems.length === 1) {
+          updatedMaterial.selectedPageRanges = 'all'
+        }
+        const sourcePrefix = `${updatedSource.id}:`
+        const firstSourcePosition = updatedMaterial.pageOrder.findIndex((id) =>
+          id.startsWith(sourcePrefix),
+        )
+        const remainingOrder = updatedMaterial.pageOrder.filter(
+          (id) => !id.startsWith(sourcePrefix),
+        )
+        const replacementOrder = Array.from(
           { length: conversion.pageCount },
           (_, pageIndex) => `${updatedSource.id}:${pageIndex}`,
         )
-        updatedMaterial.rotationByPage = {}
-        updatedMaterial.removedPages = []
+        remainingOrder.splice(
+          firstSourcePosition < 0 ? remainingOrder.length : firstSourcePosition,
+          0,
+          ...replacementOrder,
+        )
+        updatedMaterial.pageOrder = remainingOrder
+        updatedMaterial.rotationByPage = Object.fromEntries(
+          Object.entries(updatedMaterial.rotationByPage).filter(
+            ([pageId]) => !pageId.startsWith(sourcePrefix),
+          ),
+        )
+        updatedMaterial.removedPages = updatedMaterial.removedPages.filter(
+          (pageId) => !pageId.startsWith(sourcePrefix),
+        )
       }
       updatedMaterial.updatedAt = new Date().toISOString()
       updatedProject.updatedAt = updatedMaterial.updatedAt

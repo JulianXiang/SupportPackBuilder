@@ -153,6 +153,7 @@ describe('OOXML 安全校验与 LibreOffice 离线转换', () => {
     const committed = await importService.commit(projectDirectory, project, {
       token: analysis.token,
       targetOutlineNodeId: IDS.level2,
+      materialGrouping: 'separate',
       imageGrouping: 'separate',
       resolutions: analysis.candidates.map((candidate) => ({
         candidateId: candidate.id,
@@ -252,6 +253,7 @@ describe('OOXML 安全校验与 LibreOffice 离线转换', () => {
       projectDirectory,
       committed.project,
       firstMaterial.id,
+      undefined,
       false,
     )
     expect(reconverted.status).toBe('completed')
@@ -289,6 +291,7 @@ describe('OOXML 安全校验与 LibreOffice 离线转换', () => {
     const committed = await importService.commit(referenceProjectDirectory, project, {
       token: analysis.token,
       targetOutlineNodeId: IDS.level2,
+      materialGrouping: 'separate',
       imageGrouping: 'separate',
       resolutions: [{ candidateId: candidate.id, action: 'import' }],
     })

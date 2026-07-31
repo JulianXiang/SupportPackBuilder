@@ -12,7 +12,13 @@ import {
 } from 'node:fs/promises'
 import { constants as fsConstants } from 'node:fs'
 import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from 'node:path'
-import { ProjectSchema, type Material, type Project } from '../../shared/schemas/project-schema.js'
+import {
+  ProjectSchema,
+  createDefaultCollageSettings,
+  type Material,
+  type MaterialSourceType,
+  type Project,
+} from '../../shared/schemas/project-schema.js'
 import { sanitizeFileName } from '../../shared/utils/file-name.js'
 import { stripSequencePrefix } from '../../shared/utils/sequence-label.js'
 import { appLog } from './log-service.js'
@@ -26,6 +32,68 @@ export type ProjectSession = {
   projectDirectory: string
   revision: number
 }
+
+const inferMaterialSourceType = (
+  materialSourceType: unknown,
+  mimeType: unknown,
+  hasConversion: boolean,
+): MaterialSourceType => {
+  if (hasConversion || materialSourceType === 'office') return 'office'
+  if (
+    materialSourceType === 'image' ||
+    materialSourceType === 'imageCollection' ||
+    (typeof mimeType === 'string' && mimeType.startsWith('image/'))
+  ) {
+    return 'image'
+  }
+  return 'pdf'
+}
+
+const migrateMaterialToVersion3 = (rawMaterial: unknown): unknown => {
+  if (!rawMaterial || typeof rawMaterial !== 'object') return rawMaterial
+  const material = rawMaterial as Record<string, unknown>
+  const materialSourceType = material.sourceType
+  const selectedPageRanges =
+    typeof material.selectedPageRanges === 'string' ? material.selectedPageRanges : 'all'
+  const rawSources: unknown[] = Array.isArray(material.sourceItems) ? material.sourceItems : []
+  const sourceItems = rawSources.map((rawSource) => {
+    if (!rawSource || typeof rawSource !== 'object') return rawSource
+    const source = rawSource as Record<string, unknown>
+    return {
+      ...source,
+      sourceType: inferMaterialSourceType(
+        materialSourceType,
+        source.mimeType,
+        source.conversion !== undefined,
+      ),
+      selectedPageRanges:
+        typeof source.selectedPageRanges === 'string'
+          ? source.selectedPageRanges
+          : selectedPageRanges,
+    }
+  })
+  return {
+    ...material,
+    startPolicy:
+      material.startPolicy === 'allowSharedSheet' || material.startOnNewPage === false
+        ? 'allowSharedSheet'
+        : 'newSheet',
+    sourceItems,
+  }
+}
+
+const migrateOutlineNodesToVersion3 = (rawNodes: unknown[]): unknown[] =>
+  rawNodes.map((rawNode) => {
+    if (!rawNode || typeof rawNode !== 'object') return rawNode
+    const node = rawNode as Record<string, unknown>
+    const rawChildren: unknown[] = Array.isArray(node.children) ? node.children : []
+    const rawMaterials: unknown[] = Array.isArray(node.materials) ? node.materials : []
+    return {
+      ...node,
+      materials: rawMaterials.map(migrateMaterialToVersion3),
+      children: migrateOutlineNodesToVersion3(rawChildren),
+    }
+  })
 
 const normalizeOrders = (project: Project): Project => {
   const outlineNodes = [...project.outlineNodes]
@@ -68,7 +136,19 @@ export const migrateProjectData = (data: unknown): Project => {
     throw new Error('项目配置不是有效的 JSON 对象。')
   }
   const schemaVersion = (data as { schemaVersion?: unknown }).schemaVersion
-  if (schemaVersion === 2) return ProjectSchema.parse(data)
+  if (schemaVersion === 3) return ProjectSchema.parse(data)
+  if (schemaVersion === 2) {
+    const legacy = structuredClone(data) as Record<string, unknown>
+    const rawNodes: unknown[] = Array.isArray(legacy.outlineNodes) ? legacy.outlineNodes : []
+    return ProjectSchema.parse({
+      ...legacy,
+      schemaVersion: 3,
+      projectDirectory: '.',
+      collageSettings: createDefaultCollageSettings(),
+      layoutSheets: [],
+      outlineNodes: migrateOutlineNodesToVersion3(rawNodes),
+    })
+  }
   if (schemaVersion === 1 || schemaVersion === undefined || schemaVersion === 0) {
     const legacy = structuredClone(data) as Record<string, unknown>
     const rawNodes: unknown[] = Array.isArray(legacy.outlineNodes) ? legacy.outlineNodes : []
@@ -102,10 +182,14 @@ export const migrateProjectData = (data: unknown): Project => {
         }),
       }
     })
+    const migratedNodes = migrateOutlineNodesToVersion3(legacy.outlineNodes as unknown[])
     return ProjectSchema.parse({
       ...legacy,
-      schemaVersion: 2,
+      schemaVersion: 3,
       projectDirectory: '.',
+      collageSettings: createDefaultCollageSettings(),
+      layoutSheets: [],
+      outlineNodes: migratedNodes,
     })
   }
   const versionLabel =
@@ -282,7 +366,7 @@ export const resolveMaterialContentPath = (
 ): string => {
   const source = material.sourceItems.find((candidate) => candidate.id === sourceId)
   if (!source) throw new Error(`材料“${material.title}”缺少来源文件。`)
-  if (material.sourceType !== 'office') {
+  if (source.sourceType !== 'office') {
     return resolveMaterialSourcePath(projectDirectory, material, sourceId)
   }
   const snapshotPath = source.conversion?.pdfStoredPath

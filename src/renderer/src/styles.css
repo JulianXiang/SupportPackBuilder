@@ -541,6 +541,342 @@ button {
   object-fit: contain;
 }
 
+.collage-workbench-modal .ant-modal-content {
+  padding: 0;
+  overflow: hidden;
+}
+.collage-workbench-modal .ant-modal-header {
+  margin: 0;
+  padding: 15px 18px 12px;
+  border-bottom: 1px solid #d9dee4;
+}
+.collage-workbench-modal .ant-modal-body {
+  height: min(76vh, 820px);
+  min-height: 610px;
+  overflow: hidden;
+}
+.collage-workbench-modal .ant-modal-footer {
+  margin: 0;
+  padding: 10px 16px;
+  border-top: 1px solid #d9dee4;
+}
+.collage-workbench-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.collage-sheet-tabs {
+  display: flex;
+  gap: 5px;
+  height: 42px;
+  padding: 7px 12px;
+  overflow-x: auto;
+  background: #f7f8fa;
+  border-bottom: 1px solid #d9dee4;
+}
+.collage-workbench-grid {
+  display: grid;
+  grid-template-columns: 230px minmax(520px, 1fr) 310px;
+  height: calc(100% - 42px);
+  min-height: 0;
+  background: #d7dce2;
+  gap: 1px;
+}
+.collage-source-panel,
+.collage-control-panel {
+  min-height: 0;
+  padding: 12px;
+  overflow-y: auto;
+  background: #fff;
+}
+.collage-panel-title {
+  margin-bottom: 8px;
+  color: #1f3447;
+  font-size: 14px;
+  font-weight: 650;
+}
+.collage-source-panel .ant-typography {
+  margin-bottom: 10px;
+  font-size: 11px;
+}
+.collage-source-list {
+  display: grid;
+  gap: 8px;
+}
+.collage-source-card {
+  display: grid;
+  grid-template-columns: 60px minmax(0, 1fr);
+  grid-template-rows: auto auto;
+  gap: 2px 8px;
+  width: 100%;
+  min-height: 76px;
+  padding: 6px;
+  overflow: hidden;
+  color: #324354;
+  background: #fff;
+  border: 1px solid #d8dde3;
+  border-radius: 4px;
+  text-align: left;
+  cursor: pointer;
+}
+.collage-source-card:hover,
+.collage-source-card.active {
+  border-color: #2c6da4;
+  box-shadow: 0 0 0 1px rgb(44 109 164 / 18%);
+}
+.collage-source-card img,
+.collage-source-placeholder {
+  grid-row: 1 / span 2;
+  width: 60px;
+  height: 64px;
+  object-fit: contain;
+  background: #f0f2f4;
+  border: 1px solid #e2e6ea;
+}
+.collage-source-placeholder {
+  display: grid;
+  place-items: center;
+  color: #8995a1;
+  font-size: 9px;
+}
+.collage-source-card span,
+.collage-source-card small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.collage-source-card span {
+  align-self: end;
+  font-size: 11px;
+  white-space: nowrap;
+}
+.collage-source-card small {
+  color: #7d8995;
+  font-size: 9px;
+  white-space: nowrap;
+}
+.collage-canvas-panel {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  overflow: auto;
+  background: #e9ecf0;
+}
+.collage-a4-sheet {
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  width: min(100%, 520px);
+  aspect-ratio: 210 / 297;
+  background: #fff;
+  border: 1px solid #b9c0c7;
+  box-shadow: 0 4px 15px rgb(38 51 64 / 16%);
+}
+.collage-a4-sheet.landscape {
+  width: min(100%, 760px);
+  aspect-ratio: 297 / 210;
+}
+.collage-material-section {
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+  overflow: hidden;
+}
+.collage-material-section > header {
+  display: flex;
+  flex: 0 0 24px;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 0 4px;
+  overflow: hidden;
+  color: #263a4c;
+  border-bottom: 1px solid #9ca8b3;
+  font-size: 10px;
+  font-weight: 650;
+  white-space: nowrap;
+}
+.collage-material-section > header .ant-tag {
+  margin: 0;
+  font-size: 8px;
+  line-height: 14px;
+}
+.collage-section-layout,
+.collage-layout-split,
+.collage-layout-child {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  flex: 1;
+}
+.collage-layout-split.row {
+  flex-direction: row;
+}
+.collage-layout-split.column {
+  flex-direction: column;
+}
+.collage-layout-child {
+  overflow: hidden;
+}
+.collage-layout-slot {
+  position: relative;
+  display: block;
+  width: 100%;
+  min-width: 0;
+  min-height: 0;
+  padding: 0;
+  overflow: hidden;
+  background: #f7f7f5;
+  border: 1px solid #c7cdd3;
+  cursor: pointer;
+}
+.collage-layout-slot:hover {
+  border-color: #5a8db7;
+}
+.collage-layout-slot.selected {
+  border-color: #1265a6;
+  box-shadow: inset 0 0 0 2px #1265a6;
+}
+.collage-layout-slot.swap-source {
+  border-color: #db7b18;
+  box-shadow: inset 0 0 0 2px #db7b18;
+}
+.collage-layout-slot > img {
+  position: absolute;
+  max-width: none;
+  max-height: none;
+  pointer-events: none;
+}
+.collage-layout-slot > span:not(.collage-empty-slot) {
+  position: absolute;
+  right: 3px;
+  bottom: 3px;
+  left: 3px;
+  z-index: 2;
+  overflow: hidden;
+  padding: 2px 3px;
+  color: #fff;
+  background: rgb(20 35 48 / 72%);
+  font-size: 8px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.collage-empty-slot {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: #8a97a3;
+  background:
+    linear-gradient(135deg, transparent 48%, #d6dbe0 49%, #d6dbe0 51%, transparent 52%), #f5f6f7;
+  font-size: 9px;
+}
+.collage-canvas-caption {
+  margin-top: 10px;
+  color: #657482;
+  font-size: 11px;
+}
+.collage-control-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+.collage-control-label {
+  display: block;
+  margin-top: 4px;
+  color: #53616e;
+  font-size: 11px;
+}
+.collage-number-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+.collage-number-grid label {
+  display: grid;
+  gap: 3px;
+  color: #677582;
+  font-size: 10px;
+}
+.collage-number-grid .ant-input-number {
+  width: 100%;
+}
+.collage-section-weight {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 96px;
+  align-items: center;
+  gap: 6px;
+}
+.collage-section-weight > span {
+  overflow: hidden;
+  color: #596875;
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.collage-section-weight .ant-input-number-group-wrapper {
+  width: 96px;
+}
+.collage-slot-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  margin-top: 7px;
+  padding-top: 9px;
+  border-top: 1px solid #e0e4e8;
+}
+.collage-slot-controls .ant-typography {
+  margin: 0;
+}
+
+.material-source-editor {
+  display: grid;
+  gap: 7px;
+  width: 100%;
+  padding: 9px;
+  background: #fafbfc;
+  border: 1px solid #dfe4e8;
+  border-radius: 4px;
+}
+.material-source-editor-heading {
+  display: flex;
+  min-width: 0;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 6px;
+}
+.material-source-editor-heading > div {
+  min-width: 0;
+}
+.material-source-editor-heading strong,
+.material-source-editor-heading small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.material-source-editor-heading strong {
+  color: #344453;
+  font-size: 11px;
+}
+.material-source-editor-heading small,
+.source-range-label {
+  color: #7b8894;
+  font-size: 9px;
+}
+.material-source-editor-heading .ant-tag {
+  margin: 0;
+}
+.source-range-label {
+  display: block;
+  margin-bottom: 3px;
+}
+
 .inspector-heading {
   padding-left: 13px;
 }

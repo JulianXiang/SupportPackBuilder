@@ -54,6 +54,9 @@ test.beforeAll(async () => {
     },
   })
   page = await electronApp.firstWindow()
+  await electronApp.evaluate(({ BrowserWindow }) => {
+    BrowserWindow.getAllWindows()[0]?.setSize(1280, 720)
+  })
 })
 
 test.afterAll(async () => {
@@ -211,13 +214,33 @@ test('完成真实项目、导入、页面编辑、保存、重开和 A4 PDF 导
     .filter({ hasText: '遥感变化描述论文' })
     .locator('.expand-button')
     .click()
-  await expect(outline.getByText('ten-pages-a4', { exact: true })).toBeVisible()
-  await expect(outline.getByText('three-pages-landscape', { exact: true })).toBeVisible()
-  await expect(outline.getByText('图片材料（3 张）', { exact: true })).toBeVisible()
+  await expect(outline.getByTitle('ten-pages-a4', { exact: true })).toBeVisible()
+  await expect(outline.getByTitle('three-pages-landscape', { exact: true })).toBeVisible()
+  await expect(outline.getByTitle('图片材料（3 张）', { exact: true })).toBeVisible()
 
   await dragRowBefore('图片材料（3 张）', 'ten-pages-a4')
+  const imageCards = window.locator('.page-card').filter({ hasText: '图片材料（3 张）' })
+  await expect(imageCards).toHaveCount(3, { timeout: 30_000 })
+  await imageCards.first().click()
+  await window.keyboard.down(process.platform === 'darwin' ? 'Meta' : 'Control')
+  await imageCards.nth(1).click()
+  await window.keyboard.up(process.platform === 'darwin' ? 'Meta' : 'Control')
+  await window.locator('.preview-toolbar').getByRole('button', { name: '多图拼版' }).click()
+  const collageDialog = window.getByRole('dialog', { name: '自主可控多图拼版' })
+  await expect(collageDialog).toBeVisible()
+  await expect(collageDialog.locator('.collage-a4-sheet')).toBeVisible()
+  await expect(collageDialog).toContainText('2 个内容槽')
+  await collageDialog.getByRole('button', { name: '自动去白边' }).click()
+  await expect(window.getByText(/未检测到可安全去除的白边|已保留约 3 mm 安全边/)).toBeVisible({
+    timeout: 30_000,
+  })
+  await collageDialog.getByRole('button', { name: '应用拼版并重算预览' }).click()
+  await expect(collageDialog).toBeHidden()
+  await expect(window.locator('.page-card').filter({ hasText: '多图拼版页' }).first()).toBeVisible({
+    timeout: 30_000,
+  })
 
-  await outline.getByText('ten-pages-a4', { exact: true }).click()
+  await outline.getByTitle('ten-pages-a4', { exact: true }).click()
   const rangeInput = window.getByLabel('PDF 页码范围')
   await rangeInput.fill('1,3,5-7')
   await rangeInput.blur()
@@ -243,15 +266,17 @@ test('完成真实项目、导入、页面编辑、保存、重开和 A4 PDF 导
     .click()
   const secondImportDialog = window.getByRole('dialog', { name: '导入材料检查' })
   await expect(secondImportDialog.getByText('导入材料检查')).toBeVisible()
-  await expect(secondImportDialog.locator('input[type="radio"][value="separate"]')).toBeChecked()
+  await expect(
+    secondImportDialog.locator('.material-grouping-options input[value="separate"]'),
+  ).toBeChecked()
   await secondImportDialog.getByRole('button', { name: '确认导入' }).click()
   await expect(secondImportDialog).toBeHidden({ timeout: 30_000 })
   const patentRow = outline.locator('.outline-row').filter({ hasText: '发明专利' })
   await patentRow.locator('.expand-button').click()
-  await expect(outline.getByText('non-standard-scan', { exact: true })).toBeVisible()
-  await expect(outline.getByText('rotated-source-page', { exact: true })).toBeVisible()
-  await expect(outline.getByText('certificate', { exact: true })).toBeVisible()
-  await expect(outline.getByText('scan', { exact: true })).toBeVisible()
+  await expect(outline.getByTitle('non-standard-scan', { exact: true })).toBeVisible()
+  await expect(outline.getByTitle('rotated-source-page', { exact: true })).toBeVisible()
+  await expect(outline.getByTitle('certificate', { exact: true })).toBeVisible()
+  await expect(outline.getByTitle('scan', { exact: true })).toBeVisible()
   await expect(
     outlinePanel.locator('.outline-row').filter({ hasText: '知识产权' }).first(),
   ).toContainText('一、')
@@ -274,11 +299,11 @@ test('完成真实项目、导入、页面编辑、保存、重开和 A4 PDF 导
   await expect(officeImportDialog).toContainText('XLSX')
   await officeImportDialog.getByRole('button', { name: '确认导入' }).click()
   await expect(officeImportDialog).toBeHidden({ timeout: 30_000 })
-  await expect(outline.getByText('office-document', { exact: true })).toBeVisible()
-  await expect(outline.getByText('office-presentation', { exact: true })).toBeVisible()
-  await expect(outline.getByText('office-workbook-auto-print', { exact: true })).toBeVisible()
+  await expect(outline.getByTitle('office-document', { exact: true })).toBeVisible()
+  await expect(outline.getByTitle('office-presentation', { exact: true })).toBeVisible()
+  await expect(outline.getByTitle('office-workbook-auto-print', { exact: true })).toBeVisible()
 
-  await outline.getByText('office-document', { exact: true }).click()
+  await outline.getByTitle('office-document', { exact: true }).click()
   const officeCards = window.locator('.page-card').filter({ hasText: 'office-document' })
   await expect(officeCards.first()).toBeVisible({ timeout: 30_000 })
   await officeCards.first().click()
@@ -297,6 +322,8 @@ test('完成真实项目、导入、页面编辑、保存、重开和 A4 PDF 导
   expect(saved.tocSettings.title).toBe('支撑材料目录')
   expect(saved.exportSettings.contentHeadingMode).toBe('firstPage')
   expect(saved.pageNumberSettings.format).toBe('dash')
+  expect(saved.layoutSheets).toHaveLength(1)
+  expect(saved.layoutSheets[0]?.sections[0]?.layout).toBeDefined()
   expect(saved.outlineNodes).toHaveLength(3)
   expect(saved.outlineNodes.map((node) => node.title)).toEqual(['知识产权', '论文成果', '空目录'])
   expect(saved.outlineNodes.flatMap((node) => node.children)).toHaveLength(3)
@@ -323,7 +350,7 @@ test('完成真实项目、导入、页面编辑、保存、重开和 A4 PDF 导
   ).toBe(true)
 
   await window.locator('.top-toolbar').getByRole('button', { name: '打开项目' }).click()
-  await expect(outline.getByText('ten-pages-a4', { exact: true })).toBeVisible()
+  await expect(outline.getByTitle('ten-pages-a4', { exact: true })).toBeVisible()
   await expect(window.locator('.status-bar')).toContainText('已保存')
   const previewResult = await window.evaluate(
     async () => await globalThis.window.supportPack.preview.refresh(),
@@ -331,6 +358,9 @@ test('完成真实项目、导入、页面编辑、保存、重开和 A4 PDF 导
   expect(previewResult.ok).toBe(true)
   if (!previewResult.ok) throw new Error(previewResult.error.message)
   const previewPlan = previewResult.value
+  expect(
+    previewPlan.pages.filter((plannedPage) => plannedPage.pageType === 'compositeContent'),
+  ).toHaveLength(1)
   expect(
     previewPlan.pages.find((plannedPage) => plannedPage.pageType === 'cover')?.displayTitle,
   ).toBe('独立封面：2026 年度个人成果支撑材料')
@@ -362,10 +392,20 @@ test('完成真实项目、导入、页面编辑、保存、重开和 A4 PDF 导
   const previewScrollbarThumb = previewScrollbar.locator('.preview-scrollbar-thumb')
   await expect(previewScrollbar).toBeVisible()
   await expect(previewScrollbar).toHaveAttribute('aria-controls', 'preview-scroll-region')
+  const initialThumbHeight = (await previewScrollbarThumb.boundingBox())?.height
+  if (!initialThumbHeight) throw new Error('无法读取初始页面预览滑块高度。')
+  const zoomSlider = window.locator('.zoom-control').getByRole('slider')
+  await zoomSlider.focus()
+  await window.keyboard.press('End')
+  await expect(zoomSlider).toHaveAttribute('aria-valuenow', '290')
+  await expect
+    .poll(async () => (await previewScrollbarThumb.boundingBox())?.height ?? 0)
+    .toBeLessThan(initialThumbHeight)
+  await expect
+    .poll(async () => await window.locator('.page-card').count())
+    .toBeLessThan(previewPlan.totalPageCount)
   const maximumScrollTop = Number(await previewScrollbar.getAttribute('aria-valuemax'))
   expect(maximumScrollTop).toBeGreaterThan(0)
-  const initialRenderedPageCount = await window.locator('.page-card').count()
-  expect(initialRenderedPageCount).toBeLessThan(previewPlan.totalPageCount)
 
   const scrollbarBounds = await previewScrollbar.boundingBox()
   if (!scrollbarBounds) throw new Error('无法读取页面预览滚动条的位置。')
@@ -430,17 +470,6 @@ test('完成真实项目、导入、页面编辑、保存、重开和 A4 PDF 导
 
   await previewScrollbar.focus()
   await window.keyboard.press('Home')
-  const initialThumbHeight = (await previewScrollbarThumb.boundingBox())?.height
-  if (!initialThumbHeight) throw new Error('无法读取初始页面预览滑块高度。')
-  const zoomSlider = window.locator('.zoom-control').getByRole('slider')
-  await zoomSlider.focus()
-  await window.keyboard.press('End')
-  await expect(zoomSlider).toHaveAttribute('aria-valuenow', '290')
-  await expect
-    .poll(async () => (await previewScrollbarThumb.boundingBox())?.height ?? 0)
-    .toBeLessThan(initialThumbHeight)
-  await previewScrollbar.focus()
-  await window.keyboard.press('Home')
 
   await window.locator('.top-toolbar').getByRole('button', { name: '导出 PDF' }).click()
   const exportDialog = window.getByRole('dialog')
@@ -473,6 +502,20 @@ test('完成真实项目、导入、页面编辑、保存、重开和 A4 PDF 导
     .getPages()
     .map((outputPage) => readMarker(outputPage, 'SPackMaterialId'))
   expect(outputMaterialIds).toEqual(previewPlan.pages.map((plannedPage) => plannedPage.materialId))
+  const outputSourcePageIds = output
+    .getPages()
+    .map((outputPage) => readMarker(outputPage, 'SPackSourcePageIds'))
+  expect(outputSourcePageIds).toEqual(
+    previewPlan.pages.map((plannedPage) =>
+      JSON.stringify(
+        plannedPage.composite
+          ? plannedPage.composite.contentItems.map((item) => item.sourcePageId)
+          : plannedPage.sourcePageId
+            ? [plannedPage.sourcePageId]
+            : [],
+      ),
+    ),
+  )
   const reportNames = (await readdir(join(projectDirectory, 'output'))).filter((name) =>
     name.endsWith('-report.json'),
   )

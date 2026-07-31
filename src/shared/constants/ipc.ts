@@ -20,6 +20,8 @@ export const IPC_CHANNELS = {
   importReconvertOffice: 'import:reconvert-office',
   previewPlan: 'preview:plan',
   previewThumbnail: 'preview:thumbnail',
+  previewSourceThumbnail: 'preview:source-thumbnail',
+  previewDetectCrop: 'preview:detect-crop',
   previewRefresh: 'preview:refresh',
   exportPreflight: 'export:preflight',
   exportStart: 'export:start',

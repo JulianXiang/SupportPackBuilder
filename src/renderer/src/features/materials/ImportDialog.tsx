@@ -1,4 +1,4 @@
-import { Alert, Modal, Radio, Select, Space, Table, Tag, Typography } from 'antd'
+import { Alert, Input, Modal, Radio, Select, Space, Table, Tag, Typography } from 'antd'
 import { useEffect, useMemo, useState } from 'react'
 import type { Project } from '../../../../shared/schemas/project-schema.js'
 import type {
@@ -18,12 +18,16 @@ type ImportDialogProps = {
 
 export const ImportDialog = (props: ImportDialogProps): React.JSX.Element => {
   const [targetId, setTargetId] = useState(props.targetOutlineNodeId ?? '')
-  const [grouping, setGrouping] = useState<'separate' | 'collection'>('separate')
+  const [imageGrouping, setImageGrouping] = useState<'separate' | 'collection'>('separate')
+  const [materialGrouping, setMaterialGrouping] = useState<'separate' | 'singleResult'>('separate')
+  const [groupedMaterialTitle, setGroupedMaterialTitle] = useState('')
   const [actions, setActions] = useState<Record<string, 'import' | 'skip' | 'replace'>>({})
   useEffect(() => {
     if (!props.analysis) return
     setTargetId(props.targetOutlineNodeId ?? props.project.outlineNodes[0]?.children[0]?.id ?? '')
-    setGrouping('separate')
+    setImageGrouping('separate')
+    setMaterialGrouping('separate')
+    setGroupedMaterialTitle('')
     setActions(
       Object.fromEntries(
         props.analysis.candidates.map((candidate) => [
@@ -43,6 +47,11 @@ export const ImportDialog = (props: ImportDialogProps): React.JSX.Element => {
   const imageCount =
     props.analysis?.candidates.filter(
       (candidate) => candidate.sourceType === 'image' && candidate.validationStatus !== 'error',
+    ).length ?? 0
+  const importableCount =
+    props.analysis?.candidates.filter(
+      (candidate) =>
+        candidate.validationStatus !== 'error' && candidate.validationStatus !== 'encrypted',
     ).length ?? 0
   const resolutions = useMemo<DuplicateResolution[]>(
     () =>
@@ -67,7 +76,10 @@ export const ImportDialog = (props: ImportDialogProps): React.JSX.Element => {
       cancelText="取消"
       confirmLoading={props.committing}
       okButtonProps={{
-        disabled: !targetId || resolutions.every((resolution) => resolution.action === 'skip'),
+        disabled:
+          !targetId ||
+          resolutions.every((resolution) => resolution.action === 'skip') ||
+          (materialGrouping === 'singleResult' && groupedMaterialTitle.trim().length === 0),
       }}
       onCancel={props.onCancel}
       onOk={() =>
@@ -75,7 +87,11 @@ export const ImportDialog = (props: ImportDialogProps): React.JSX.Element => {
         props.onCommit({
           token: props.analysis.token,
           targetOutlineNodeId: targetId,
-          imageGrouping: grouping,
+          materialGrouping,
+          ...(materialGrouping === 'singleResult'
+            ? { groupedMaterialTitle: groupedMaterialTitle.trim() }
+            : {}),
+          imageGrouping,
           resolutions,
         })
       }
@@ -92,12 +108,44 @@ export const ImportDialog = (props: ImportDialogProps): React.JSX.Element => {
               onChange={setTargetId}
             />
           </label>
-          {imageCount > 1 && (
+          {importableCount > 1 && (
+            <label>
+              <span>成果归组</span>
+              <Radio.Group
+                className="material-grouping-options"
+                aria-label="成果归组"
+                value={materialGrouping}
+                onChange={(event) =>
+                  setMaterialGrouping(event.target.value as 'separate' | 'singleResult')
+                }
+              >
+                <Radio value="separate">分别创建成果</Radio>
+                <Radio value="singleResult">合并为同一项成果</Radio>
+              </Radio.Group>
+            </label>
+          )}
+          {materialGrouping === 'singleResult' && (
+            <label>
+              <span>成果名称</span>
+              <Input
+                value={groupedMaterialTitle}
+                maxLength={300}
+                placeholder="例如：学生竞赛获奖（证书、名单与现场照片）"
+                style={{ width: 390 }}
+                onChange={(event) => setGroupedMaterialTitle(event.target.value)}
+              />
+            </label>
+          )}
+          {materialGrouping === 'separate' && imageCount > 1 && (
             <label>
               <span>多张图片</span>
               <Radio.Group
-                value={grouping}
-                onChange={(event) => setGrouping(event.target.value as 'separate' | 'collection')}
+                className="image-grouping-options"
+                aria-label="多张图片归组"
+                value={imageGrouping}
+                onChange={(event) =>
+                  setImageGrouping(event.target.value as 'separate' | 'collection')
+                }
               >
                 <Radio value="separate">分别作为材料</Radio>
                 <Radio value="collection">合并为同一材料</Radio>

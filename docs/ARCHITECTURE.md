@@ -12,7 +12,7 @@
 
 ### Renderer
 
-React、Ant Design 和 Zustand 负责结构化项目编辑、选择状态、操作历史、虚拟化预览和进度界面。Renderer 不读取文件、不持有 PDF/图片/Office 二进制、不启动转换程序、不合并 PDF。
+React、Ant Design 和 Zustand 负责结构化项目编辑、选择状态、操作历史、虚拟化预览、拼版工作台和进度界面。拼版工作台只编辑 `layoutSheets` 结构化配置；Renderer 不读取文件、不持有 PDF/图片/Office 二进制、不启动转换程序、不合并 PDF，也不自行决定最终页面顺序。
 
 ### 隐藏打印窗口
 
@@ -24,7 +24,7 @@ React、Ant Design 和 Zustand 负责结构化项目编辑、选择状态、操�
 
 ### Worker Threads
 
-两个并发槽的缩略图队列使用 worker_threads。PDF.js 与 `@napi-rs/canvas` 渲染 PDF，Sharp 生成 WebP 缓存。
+两个并发槽的缩略图队列使用 worker_threads。PDF.js 与 `@napi-rs/canvas` 渲染 PDF，Sharp 生成 WebP 缓存。来源页缩略图与自动裁边都通过稳定 `sourcePageId` 和当前 `planFingerprint` 请求；Main 从项目会话解析真实路径，不向 Renderer 返回路径。
 
 ### Office 转换进程
 
@@ -41,17 +41,20 @@ React、Ant Design 和 Zustand 负责结构化项目编辑、选择状态、操�
 
 错误对象提供中文阶段、原因和可操作建议；本地路径不通过 URL 参数公开。
 
+拼版新增的受控预览调用只接受 `sourcePageId`、当前 `planFingerprint`、有界缩略图宽度和自动裁边安全边距。Main 会拒绝旧计划、未知来源页、越界宽度和非法安全边距。自动裁边返回 0–10000 的归一化矩形，不返回来源二进制或文件路径。
+
 ## 3. 数据流
 
 ```mermaid
 flowchart LR
-  UI["Renderer 编辑"] -->|"结构化项目 + revision"| IPC["白名单 IPC"]
+  UI["Renderer 编辑与拼版工作台"] -->|"结构化项目 + revision"| IPC["白名单 IPC"]
   IPC --> SESSION["Main 项目会话"]
   IPC --> CONVERT["OOXML 检查与 LibreOffice 转换"]
   CONVERT --> SESSION
   SESSION --> PLAN["PagePlanCoordinator"]
   PLAN --> PRINT["统一生成页面服务"]
   PRINT --> PREVIEW["真实 A4 虚拟化预览"]
+  IPC --> SOURCE_PREVIEW["来源缩略图与安全自动裁边"]
   PLAN --> WORKER["utilityProcess 导出"]
   PRINT --> WORKER
   WORKER --> VERIFY["输出重读校验"]
@@ -86,8 +89,9 @@ DOCX/PPTX/XLSX -> OOXML ZIP 安全检查 -> temp/import-<taskId>
 
 `buildPagePlan` 是两阶段的唯一权威计算：
 
-1. 按启用状态、页码范围、删除状态和实际内容页确定输出材料与有效祖先节点。
-2. 只对有效输出生成一级 `一、`、二级 `（一）`、材料 `1.` 序号，再生成页面、目录和页码映射。
+1. 按启用状态、页码范围、删除状态和实际内容页确定 canonical 来源页、输出材料与有效祖先节点。
+2. 校验并应用 `layoutSheets`：拼版锚点替换首个来源页，其他已使用来源页不再生成普通独占页面。
+3. 只对有效输出生成一级 `一、`、二级 `（一）`、材料 `1.` 序号，再生成页面、目录和页码映射。
 
 它统一处理：
 
@@ -101,6 +105,9 @@ DOCX/PPTX/XLSX -> OOXML ZIP 安全检查 -> temp/import-<taskId>
 - 物理索引与逻辑页码
 - 节点/材料起止页
 - TOC 条目
+- 普通内容页与 `compositeContent` 拼版页
+- 拼版区段、递归横/纵拆分、来源槽、裁切、适配、对齐和布局摘要
+- 拼版冲突、缺失槽、跨目录确认和清晰度门禁
 - 错误、警告与 fingerprint
 
 左侧树、同页标题、独立标题页、目录、预览和导出共用编号格式化器与 PagePlan，不保存手工序号。拖拽只修改 `order`，随后整套序号即时派生。没有实际输出的目录显示“未输出”，不占序号。内容页只允许在同一材料内拖拽。
@@ -108,6 +115,21 @@ DOCX/PPTX/XLSX -> OOXML ZIP 安全检查 -> temp/import-<taskId>
 一级目录没有独立分类页时，其起始逻辑页由第一个启用的后代节点或材料回推。`inlineHeadings` 使用一级、二级、材料三级语义，并随 planFingerprint 一起变化。
 
 封面字段在新建项目时从项目属性复制一次，之后独立保存。项目属性修改不会回写封面；封面缩略图与最终 PDF 均读取 `coverSettings`。姓名、单位、用途为空时生成页面不保留空行。
+
+### 拼版布局树
+
+项目的 `layoutSheets` 是持久化的用户意图，不是另一份 PagePlan。每张拼版纸包含：
+
+- A4 方向、页边距、区段/槽位间距、锚点来源页和规范顺序。
+- 一个或多个全宽成果区段；跨成果时各区段保存材料 ID、标题显示规则和高度权重。
+- 递归 `row`/`column` 拆分树；分支使用总和为 10000 的整数权重。
+- 叶子槽位；保存稳定 `sourcePageId`、归一化裁切框、适配方式、九宫格对齐、附加旋转和清晰度确认。
+
+同一来源页只能作为一个主槽出现；“原图＋细节”通过 `detailOf` 明确允许第二个裁切视图。自动建议受项目槽位上限约束，超出容量时创建更多拼版纸，不截断页面。跨二级目录必须保存用户确认。
+
+PagePlan 会把每个有效布局解析成 `CompositePagePlan`，并用布局摘要加入 fingerprint。未确认的低清晰度槽、孤儿材料、未知来源、重复主槽、非连续选择或错误锚点会阻止导出。缺失单页保留为错误槽以便用户修复；删除整项材料或目录时 Renderer 的共享清理函数会移除对应区段并重新归一化。
+
+预览、最终 PDF 和输出校验读取同一个 `CompositePagePlan`。Renderer 中的工作台预览仅用于编辑反馈，不能替代真实 A4 合成结果。
 
 ## 6. 状态与历史
 

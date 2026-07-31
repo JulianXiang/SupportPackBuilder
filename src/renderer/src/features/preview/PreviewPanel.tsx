@@ -1,4 +1,5 @@
 import {
+  AppstoreAddOutlined,
   DeleteOutlined,
   EyeOutlined,
   HolderOutlined,
@@ -22,8 +23,12 @@ import { App, Badge, Button, Empty, Modal, Slider, Space, Spin, Tag, Tooltip } f
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { PagePlan, PlannedPage } from '../../../../shared/schemas/page-plan-schema.js'
 import type { Project, Rotation } from '../../../../shared/schemas/project-schema.js'
+import { A4_SIZE_POINTS } from '../../../../shared/constants/document.js'
+import { suggestCollage } from '../../../../shared/utils/collage-suggestion.js'
+import { getSelectedSourcePages } from '../../../../shared/utils/page-plan.js'
 import type { Selection } from '../../stores/project-store.js'
 import { findMaterial } from '../../utils/project.js'
+import { CollageWorkbench, type CollageWorkbenchSource } from '../collage/CollageWorkbench.js'
 import {
   calculatePreviewScrollbarMetrics,
   calculatePreviewScrollbarThumbTop,
@@ -39,6 +44,7 @@ const PAGE_TYPE_LABELS: Record<PlannedPage['pageType'], string> = {
   materialTitle: '材料标题页',
   pdfContent: 'PDF 页面',
   imageContent: '图片页面',
+  compositeContent: '多图拼版页',
 }
 
 const rotate = (value: Rotation, delta: 90 | -90): Rotation =>
@@ -82,9 +88,12 @@ type PageCardProps = {
 }
 
 const PageCard = (props: PageCardProps): React.JSX.Element => {
-  const generated = !['pdfContent', 'imageContent'].includes(props.page.pageType)
+  const sortableContent = ['pdfContent', 'imageContent'].includes(props.page.pageType)
+  const generated = !['pdfContent', 'imageContent', 'compositeContent'].includes(
+    props.page.pageType,
+  )
   const previewable = props.page.pageType !== 'blank'
-  const sortable = useSortable({ id: props.page.id, disabled: generated })
+  const sortable = useSortable({ id: props.page.id, disabled: !sortableContent })
   const [thumbnailUrl, setThumbnailUrl] = useState<string | null>(null)
   const [loading, setLoading] = useState(previewable)
   const [failed, setFailed] = useState(false)
@@ -132,7 +141,7 @@ const PageCard = (props: PageCardProps): React.JSX.Element => {
     >
       <div className="page-card-toolbar">
         <span>物理页 {props.page.physicalIndex + 1}</span>
-        {!generated && (
+        {sortableContent && (
           <button
             type="button"
             className="page-drag-handle"
@@ -201,8 +210,14 @@ type PreviewPanelProps = {
   onRefresh: () => void
 }
 
+type CollageWorkbenchState = {
+  sources: CollageWorkbenchSource[]
+  sheets: Project['layoutSheets']
+  editingSheetIds: string[]
+}
+
 export const PreviewPanel = (props: PreviewPanelProps): React.JSX.Element => {
-  const { message } = App.useApp()
+  const { message, modal } = App.useApp()
   const scrollRef = useRef<HTMLDivElement>(null)
   const scrollbarTrackRef = useRef<HTMLDivElement>(null)
   const scrollbarThumbRef = useRef<HTMLDivElement>(null)
@@ -213,6 +228,7 @@ export const PreviewPanel = (props: PreviewPanelProps): React.JSX.Element => {
   const lastSelectedIndex = useRef<number | null>(null)
   const [thumbnailWidth, setThumbnailWidth] = useState(190)
   const [largeImage, setLargeImage] = useState<string | null>(null)
+  const [collageWorkbench, setCollageWorkbench] = useState<CollageWorkbenchState | null>(null)
   const [scrollbarMetrics, setScrollbarMetrics] =
     useState<PreviewScrollbarMetrics>(EMPTY_SCROLLBAR_METRICS)
   const columns = thumbnailWidth <= 170 ? 4 : thumbnailWidth <= 230 ? 3 : 2
@@ -227,6 +243,22 @@ export const PreviewPanel = (props: PreviewPanelProps): React.JSX.Element => {
   const virtualPageHeight = virtualizer.getTotalSize()
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }))
   const selected = useMemo(() => new Set(props.selectedPageIds), [props.selectedPageIds])
+  const canonicalSourceOrder = useMemo(() => {
+    const sourceIds = [...props.project.outlineNodes]
+      .sort((left, right) => left.order - right.order)
+      .flatMap((root) =>
+        [...root.children]
+          .sort((left, right) => left.order - right.order)
+          .flatMap((child) =>
+            [...child.materials]
+              .sort((left, right) => left.order - right.order)
+              .flatMap((material) =>
+                getSelectedSourcePages(material).pages.map((page) => page.sourcePageId),
+              ),
+          ),
+      )
+    return new Map(sourceIds.map((sourcePageId, index) => [sourcePageId, index]))
+  }, [props.project])
 
   const updateScrollbarThumb = useCallback((): void => {
     const scrollElement = scrollRef.current
@@ -400,8 +432,165 @@ export const PreviewPanel = (props: PreviewPanelProps): React.JSX.Element => {
   }
 
   const selectedContentPages = pages.filter(
-    (page) => selected.has(page.id) && page.sourcePageId && page.materialId,
+    (page) =>
+      selected.has(page.id) &&
+      page.sourcePageId &&
+      page.materialId &&
+      (page.pageType === 'pdfContent' || page.pageType === 'imageContent'),
   )
+
+  const createWorkbenchSource = (input: {
+    sourcePageId: string
+    sourceId: string
+    materialId: string
+    outlineNodeId: string
+    sourceKind: 'pdf' | 'image'
+    sourcePageIndex: number
+  }): CollageWorkbenchSource | null => {
+    const found = findMaterial(props.project, input.materialId)
+    const source = found?.material.sourceItems.find((candidate) => candidate.id === input.sourceId)
+    if (!found || !source) return null
+    return {
+      ...input,
+      materialTitle: found.material.title,
+      label: `${found.material.title} · 第 ${input.sourcePageIndex + 1} 页`,
+      width:
+        input.sourceKind === 'image'
+          ? (source.width ?? A4_SIZE_POINTS.width)
+          : A4_SIZE_POINTS.width,
+      height:
+        input.sourceKind === 'image'
+          ? (source.height ?? A4_SIZE_POINTS.height)
+          : A4_SIZE_POINTS.height,
+      canonicalOrder: canonicalSourceOrder.get(input.sourcePageId) ?? Number.MAX_SAFE_INTEGER,
+    }
+  }
+
+  const openCollageWorkbench = (): void => {
+    if (!props.plan) return
+    const selectedPages = pages.filter((page) => selected.has(page.id))
+    const selectedComposite = selectedPages.filter(
+      (page) => page.pageType === 'compositeContent' && page.composite,
+    )
+    if (selectedComposite.length === 1 && selectedPages.length === 1) {
+      const page = selectedComposite[0]
+      if (!page) return
+      const sheet = props.project.layoutSheets.find(
+        (candidate) => candidate.id === page.composite?.layoutSheetId,
+      )
+      if (!sheet || !page.composite) {
+        void message.error('找不到该拼版页的项目配置，请刷新预览。')
+        return
+      }
+      const sources = [
+        ...new Map(
+          page.composite.contentItems.map((item) => [
+            item.sourcePageId,
+            createWorkbenchSource({
+              sourcePageId: item.sourcePageId,
+              sourceId: item.sourceId,
+              materialId: item.materialId,
+              outlineNodeId: item.outlineNodeId,
+              sourceKind: item.sourceKind,
+              sourcePageIndex: item.sourcePageIndex,
+            }),
+          ]),
+        ).values(),
+      ].filter((source): source is CollageWorkbenchSource => source !== null)
+      setCollageWorkbench({
+        sources,
+        sheets: [structuredClone(sheet)],
+        editingSheetIds: [sheet.id],
+      })
+      return
+    }
+    const contentPages = selectedPages.filter(
+      (
+        page,
+      ): page is PlannedPage & {
+        sourcePageId: string
+        sourceId: string
+        materialId: string
+        outlineNodeId: string
+        sourcePageIndex: number
+        pageType: 'pdfContent' | 'imageContent'
+      } =>
+        (page.pageType === 'pdfContent' || page.pageType === 'imageContent') &&
+        page.sourcePageId !== null &&
+        page.sourceId !== null &&
+        page.materialId !== null &&
+        page.outlineNodeId !== null &&
+        page.sourcePageIndex !== null,
+    )
+    if (contentPages.length < 2) {
+      void message.info('请至少选择两个普通 PDF 或图片内容页；已有拼版页可单独选中后编辑。')
+      return
+    }
+    const sources = contentPages
+      .map((page) =>
+        createWorkbenchSource({
+          sourcePageId: page.sourcePageId,
+          sourceId: page.sourceId,
+          materialId: page.materialId,
+          outlineNodeId: page.outlineNodeId,
+          sourceKind: page.pageType === 'pdfContent' ? 'pdf' : 'image',
+          sourcePageIndex: page.sourcePageIndex,
+        }),
+      )
+      .filter((source): source is CollageWorkbenchSource => source !== null)
+    const selectedRanks = sources
+      .map((source) => source.canonicalOrder)
+      .sort((left, right) => left - right)
+    const selectedPagesAreContiguous = selectedRanks.every(
+      (rank, index) => index === 0 || rank === (selectedRanks[index - 1] ?? rank) + 1,
+    )
+    if (!selectedPagesAreContiguous) {
+      void message.error(
+        '所选页面在最终材料顺序中不连续。请连续选择页面，避免拼版改变专家阅读顺序。',
+      )
+      return
+    }
+    const materialCount = new Set(sources.map((source) => source.materialId)).size
+    const outlineCount = new Set(sources.map((source) => source.outlineNodeId)).size
+    const buildSuggestion = (crossDirectoryConfirmed: boolean): void => {
+      try {
+        const suggestion = suggestCollage({
+          pages: sources.map((source) => ({
+            sourcePageId: source.sourcePageId,
+            materialId: source.materialId,
+            outlineNodeId: source.outlineNodeId,
+            sourceKind: source.sourceKind,
+            aspectRatio: source.width / source.height,
+          })),
+          project: props.project,
+          existingSheetCount: props.project.layoutSheets.length,
+          allowCrossMaterial: materialCount > 1,
+          crossDirectoryConfirmed,
+        })
+        setCollageWorkbench({
+          sources,
+          sheets: suggestion.sheets,
+          editingSheetIds: [],
+        })
+      } catch (error) {
+        void message.error(error instanceof Error ? error.message : '无法创建拼版建议。')
+      }
+    }
+    if (materialCount > 1) {
+      modal.confirm({
+        title: outlineCount > 1 ? '确认跨目录、跨成果拼版' : '确认跨成果拼版',
+        content:
+          outlineCount > 1
+            ? '所选页面来自不同目录和成果。每项成果会保留独立全宽区段与小标题，但多个目录条目可能指向同一逻辑页。请确认这符合提交材料要求。'
+            : '所选页面来自多项成果。系统会按目录顺序上下排列，每项成果保留独立全宽区段和小标题。',
+        okText: '确认归属并进入拼版',
+        cancelText: '取消',
+        onOk: () => buildSuggestion(outlineCount > 1),
+      })
+    } else {
+      buildSuggestion(false)
+    }
+  }
 
   const mutateSelectedPages = (
     operation: 'left' | 'right' | 'delete' | 'restoreRotation',
@@ -524,6 +713,16 @@ export const PreviewPanel = (props: PreviewPanelProps): React.JSX.Element => {
               }}
             />
           </Tooltip>
+          <Tooltip title="将所选页面进行自主可控多图拼版；单选已有拼版页可继续编辑">
+            <Button
+              size="small"
+              icon={<AppstoreAddOutlined />}
+              disabled={props.selectedPageIds.length === 0}
+              onClick={openCollageWorkbench}
+            >
+              多图拼版
+            </Button>
+          </Tooltip>
           <Tooltip title="重新计算页面计划">
             <Button
               size="small"
@@ -634,6 +833,52 @@ export const PreviewPanel = (props: PreviewPanelProps): React.JSX.Element => {
       >
         {largeImage && <img className="large-preview-image" src={largeImage} alt="页面大图" />}
       </Modal>
+      {collageWorkbench && props.plan && (
+        <CollageWorkbench
+          open
+          project={props.project}
+          planFingerprint={props.plan.planFingerprint}
+          sources={collageWorkbench.sources}
+          initialSheets={collageWorkbench.sheets}
+          editingSheetIds={collageWorkbench.editingSheetIds}
+          onCancel={() => setCollageWorkbench(null)}
+          onApply={(sheetsToApply, editingSheetIds) => {
+            const involvedMaterialIds = new Set(
+              sheetsToApply.flatMap((sheet) => sheet.sections.map((section) => section.materialId)),
+            )
+            props.onMutate((draft) => {
+              draft.layoutSheets = [
+                ...draft.layoutSheets.filter((sheet) => !editingSheetIds.includes(sheet.id)),
+                ...sheetsToApply,
+              ]
+                .sort((left, right) => left.order - right.order)
+                .map((sheet, index) => ({ ...sheet, order: index }))
+              draft.outlineNodes.forEach((root) =>
+                root.children.forEach((child) =>
+                  child.materials.forEach((material) => {
+                    if (involvedMaterialIds.has(material.id)) {
+                      material.startPolicy = 'allowSharedSheet'
+                    }
+                  }),
+                ),
+              )
+            })
+            props.onSelectionChange([], null)
+            setCollageWorkbench(null)
+            void message.success('拼版配置已应用，正在按同一 PagePlan 重算预览。')
+          }}
+          onRemove={(editingSheetIds) => {
+            props.onMutate((draft) => {
+              draft.layoutSheets = draft.layoutSheets
+                .filter((sheet) => !editingSheetIds.includes(sheet.id))
+                .map((sheet, index) => ({ ...sheet, order: index }))
+            })
+            props.onSelectionChange([], null)
+            setCollageWorkbench(null)
+            void message.success('已取消拼版，来源页面恢复为独立 A4 页面。')
+          }}
+        />
+      )}
     </section>
   )
 }

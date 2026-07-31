@@ -9,7 +9,7 @@ import {
 
 describe('ProjectSchema', () => {
   it('完整校验有效项目', () => {
-    expect(ProjectSchema.parse(createProjectFixture()).schemaVersion).toBe(2)
+    expect(ProjectSchema.parse(createProjectFixture()).schemaVersion).toBe(3)
   })
 
   it('为缺少新增可选设置的项目补充默认值', () => {
@@ -65,6 +65,7 @@ describe('ProjectSchema', () => {
 
   it('完整校验包含 LibreOffice PDF 快照的 Office 材料', () => {
     const officeSource = createSourceFixture({
+      sourceType: 'office',
       sourcePath: 'assets/source.docx',
       storedPath: 'assets/source.docx',
       originalFileName: 'source.docx',

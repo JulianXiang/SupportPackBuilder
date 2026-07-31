@@ -23,7 +23,11 @@ const run = async (executable: string, arguments_: string[]): Promise<string> =>
       shell: false,
       windowsHide: true,
       stdio: ['ignore', 'pipe', 'pipe'],
-      env: { ...process.env, SAL_USE_VCLPLUGIN: 'svp' },
+      env: {
+        ...process.env,
+        SAL_USE_VCLPLUGIN: 'svp',
+        PYTHONDONTWRITEBYTECODE: '1',
+      },
     })
     let output = ''
     child.stdout.on('data', (chunk: Buffer | string) => {
@@ -54,6 +58,9 @@ const executable =
       )
     : join(applicationPath, 'resources', 'libreoffice', 'program', 'soffice.exe')
 await access(executable)
+if (process.platform === 'darwin') {
+  await run('/usr/bin/codesign', ['--verify', '--deep', '--strict', applicationPath])
+}
 
 const temporaryDirectory = await mkdtemp(join(tmpdir(), 'supportpack-packaged-office-'))
 try {
@@ -111,6 +118,9 @@ try {
       fileHash: createHash('sha256').update(bytes).digest('hex'),
       engineVersion,
     })
+  }
+  if (process.platform === 'darwin') {
+    await run('/usr/bin/codesign', ['--verify', '--deep', '--strict', applicationPath])
   }
   process.stdout.write(
     `${JSON.stringify({

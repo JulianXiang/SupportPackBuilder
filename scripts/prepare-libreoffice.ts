@@ -47,6 +47,10 @@ const command = async (executable: string, arguments_: string[]): Promise<string
       shell: false,
       stdio: ['ignore', 'pipe', 'pipe'],
       windowsHide: true,
+      env: {
+        ...process.env,
+        PYTHONDONTWRITEBYTECODE: '1',
+      },
     })
     let stdout = ''
     let stderr = ''

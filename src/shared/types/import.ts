@@ -60,6 +60,8 @@ export type DuplicateResolution =
 export type ImportCommitInput = {
   token: string
   targetOutlineNodeId: string
+  materialGrouping: 'separate' | 'singleResult'
+  groupedMaterialTitle?: string
   imageGrouping: 'separate' | 'collection'
   resolutions: DuplicateResolution[]
 }

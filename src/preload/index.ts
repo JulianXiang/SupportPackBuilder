@@ -80,6 +80,8 @@ const api: SupportPackApi = {
   preview: {
     plan: async (input) => await invoke(IPC_CHANNELS.previewPlan, input),
     thumbnail: async (input) => await invoke(IPC_CHANNELS.previewThumbnail, input),
+    sourceThumbnail: async (input) => await invoke(IPC_CHANNELS.previewSourceThumbnail, input),
+    detectCrop: async (input) => await invoke(IPC_CHANNELS.previewDetectCrop, input),
     refresh: async () => await invoke(IPC_CHANNELS.previewRefresh),
   },
   export: {

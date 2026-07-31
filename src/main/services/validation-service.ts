@@ -116,12 +116,14 @@ export const validateSourceFile = async (filePath: string): Promise<ValidatedSou
       officeFormat,
       officeHasPrintSettings: inspection.hasPrintSettings,
       source: {
+        sourceType: 'office',
         originalFileName: fileName,
         fileHash,
         fileSize: fileStat.size,
         modifiedTime: Math.round(fileStat.mtimeMs),
         mimeType: inspection.mimeType,
         pageCount: 1,
+        selectedPageRanges: 'all',
       },
       validationStatus: messages.length > 0 ? 'warning' : 'valid',
       validationMessages: messages,
@@ -151,12 +153,14 @@ export const validateSourceFile = async (filePath: string): Promise<ValidatedSou
       return {
         sourceType: 'pdf',
         source: {
+          sourceType: 'pdf',
           originalFileName: fileName,
           fileHash,
           fileSize: fileStat.size,
           modifiedTime: Math.round(fileStat.mtimeMs),
           mimeType: detected.mime,
           pageCount: Math.max(1, document.getPageCount()),
+          selectedPageRanges: 'all',
         },
         validationStatus: 'encrypted',
         validationMessages: [
@@ -176,12 +180,14 @@ export const validateSourceFile = async (filePath: string): Promise<ValidatedSou
     return {
       sourceType: 'pdf',
       source: {
+        sourceType: 'pdf',
         originalFileName: fileName,
         fileHash,
         fileSize: fileStat.size,
         modifiedTime: Math.round(fileStat.mtimeMs),
         mimeType: detected.mime,
         pageCount,
+        selectedPageRanges: 'all',
       },
       validationStatus: 'valid',
       validationMessages: [],
@@ -212,12 +218,14 @@ export const validateSourceFile = async (filePath: string): Promise<ValidatedSou
   return {
     sourceType: 'image',
     source: {
+      sourceType: 'image',
       originalFileName: fileName,
       fileHash,
       fileSize: fileStat.size,
       modifiedTime: Math.round(fileStat.mtimeMs),
       mimeType: detected.mime,
       pageCount: 1,
+      selectedPageRanges: 'all',
       width: metadata.width,
       height: metadata.height,
       ...(metadata.orientation ? { exifOrientation: metadata.orientation } : {}),
@@ -266,7 +274,7 @@ export const validateProjectFiles = async (
         if (!fileStat.isFile()) throw new Error('不是普通文件')
         const metadataChanged =
           fileStat.size !== source.fileSize || Math.round(fileStat.mtimeMs) !== source.modifiedTime
-        if (material.sourceType === 'office' && source.conversion) {
+        if (source.sourceType === 'office' && source.conversion) {
           const currentHash = await calculateFileHash(path)
           if (currentHash !== source.conversion.sourceFileHash) {
             officeSnapshotStatus = 'stale'
@@ -304,7 +312,7 @@ export const validateProjectFiles = async (
           ),
         )
       }
-      if (material.sourceType === 'office') {
+      if (source.sourceType === 'office') {
         const snapshot = source.conversion
         if (!snapshot) {
           officeSnapshotStatus = 'error'
@@ -391,9 +399,13 @@ export const synchronizeProjectFileStatuses = async (
       check.status === 'valid' && messages.some((message) => message.severity === 'warning')
         ? 'warning'
         : check.status
-    if (material.sourceType === 'office' && check.officeSnapshotStatus) {
-      const conversion = material.sourceItems[0]?.conversion
-      if (conversion) conversion.snapshotStatus = check.officeSnapshotStatus
+    if (check.officeSnapshotStatus) {
+      const snapshotStatus = check.officeSnapshotStatus
+      material.sourceItems.forEach((source) => {
+        if (source.sourceType === 'office' && source.conversion) {
+          source.conversion.snapshotStatus = snapshotStatus
+        }
+      })
     }
   }
   return updated

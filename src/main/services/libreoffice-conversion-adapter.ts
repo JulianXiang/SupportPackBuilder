@@ -45,6 +45,9 @@ const runProcess = async (input: {
       env: {
         ...process.env,
         SAL_USE_VCLPLUGIN: 'svp',
+        // LibreOffice 捆绑的 Python 在可写开发包中可能回写 __pycache__，
+        // 这会破坏 macOS 应用资源封印。转换只允许写独立用户配置和输出目录。
+        PYTHONDONTWRITEBYTECODE: '1',
       },
     })
     let stdout = ''

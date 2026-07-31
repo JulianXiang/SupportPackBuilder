@@ -86,10 +86,12 @@ if (officeMaterials.length !== 3) {
   throw new Error(`打包成品回归项目应包含 3 项 Office 材料，实际为 ${officeMaterials.length} 项。`)
 }
 const outputMaterialIds = new Set(
-  document
-    .getPages()
-    .map((_, pageIndex) => readMarker(pageIndex, 'SPackMaterialId'))
-    .filter(Boolean),
+  document.getPages().flatMap((_, pageIndex) => {
+    const single = readMarker(pageIndex, 'SPackMaterialId')
+    const marker = readMarker(pageIndex, 'SPackMaterialIds')
+    const multiple = marker ? JSON.parse(marker) : []
+    return [...(single ? [single] : []), ...multiple]
+  }),
 )
 for (const material of materials) {
   if (!outputMaterialIds.has(material.id)) {
@@ -119,6 +121,26 @@ for (const material of materials) {
   }
 }
 
+const compositePageIndexes = document
+  .getPages()
+  .map((_, pageIndex) => pageIndex)
+  .filter((pageIndex) => readMarker(pageIndex, 'SPackPageType') === 'compositeContent')
+if (compositePageIndexes.length !== 1 || project.layoutSheets?.length !== 1) {
+  throw new Error(
+    `打包成品应包含 1 张持久化多图拼版，实际 PDF 为 ${compositePageIndexes.length} 张、项目为 ${project.layoutSheets?.length ?? 0} 张。`,
+  )
+}
+const compositePageIndex = compositePageIndexes[0]
+const compositeSourceIds = JSON.parse(readMarker(compositePageIndex, 'SPackSourcePageIds') ?? '[]')
+const compositeMaterialIds = JSON.parse(readMarker(compositePageIndex, 'SPackMaterialIds') ?? '[]')
+if (
+  compositeSourceIds.length !== 2 ||
+  compositeMaterialIds.length !== 2 ||
+  !readMarker(compositePageIndex, 'SPackLayoutDigest')
+) {
+  throw new Error('打包成品多图拼版缺少来源页、成果归属或布局摘要标记。')
+}
+
 const temporaryEntries = await readdir(join(projectDirectory, 'temp'))
 if (temporaryEntries.length > 0) {
   throw new Error(`打包成品导出后仍有临时目录：${temporaryEntries.join('、')}`)
@@ -132,6 +154,8 @@ stdout.write(
     reportChecks: report.checks.length,
     pageNumberCount: pageNumberLabels.length,
     officeMaterialCount: officeMaterials.length,
+    compositePageCount: compositePageIndexes.length,
+    compositeSourceCount: compositeSourceIds.length,
     firstPageTypes,
     outputSha256: createHash('sha256').update(outputBytes).digest('hex'),
     outputPath,

@@ -33,7 +33,7 @@ import type { PagePlan } from '../../../../shared/schemas/page-plan-schema.js'
 import type { Material, OutlineNode, Project } from '../../../../shared/schemas/project-schema.js'
 import { stripSequencePrefix } from '../../../../shared/utils/sequence-label.js'
 import type { Selection } from '../../stores/project-store.js'
-import { findOutlineNode } from '../../utils/project.js'
+import { findOutlineNode, removeMaterialsFromLayoutSheets } from '../../utils/project.js'
 
 type OutlinePanelProps = {
   project: Project
@@ -228,12 +228,17 @@ export const OutlinePanel = (props: OutlinePanelProps): React.JSX.Element => {
       onOk: () =>
         props.onMutate(
           (draft) => {
+            const removedMaterialIds =
+              node.level === 1
+                ? node.children.flatMap((child) => child.materials.map((material) => material.id))
+                : node.materials.map((material) => material.id)
             if (node.level === 1)
               draft.outlineNodes = draft.outlineNodes.filter((item) => item.id !== node.id)
             else
               draft.outlineNodes.forEach((parent) => {
                 parent.children = parent.children.filter((item) => item.id !== node.id)
               })
+            removeMaterialsFromLayoutSheets(draft, removedMaterialIds)
           },
           { kind: 'project', id: props.project.id },
         ),

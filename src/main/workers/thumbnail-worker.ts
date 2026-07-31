@@ -35,9 +35,10 @@ const renderPdfThumbnail = async (request: ThumbnailWorkerRequest): Promise<void
   const document = await loadingTask.promise
   try {
     const page = await document.getPage(request.sourcePageIndex + 1)
-    const baseViewport = page.getViewport({ scale: 1, rotation: request.rotation })
+    const rotation = (page.rotate + request.rotation) % 360
+    const baseViewport = page.getViewport({ scale: 1, rotation })
     const scale = request.width / baseViewport.width
-    const viewport = page.getViewport({ scale, rotation: request.rotation })
+    const viewport = page.getViewport({ scale, rotation })
     const canvas = createCanvas(Math.ceil(viewport.width), Math.ceil(viewport.height))
     const context = canvas.getContext('2d')
     await page.render({

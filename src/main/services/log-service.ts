@@ -43,7 +43,7 @@ export const initializeLogService = (): void => {
   if (!electronApp) throw new Error('日志服务只能在 Electron 主进程中初始化。')
   log.initialize()
   log.transports.file.resolvePathFn = () =>
-    join(electronApp.getPath('logs'), 'support-pack-builder.log')
+    join(electronApp.getPath('logs'), 'supportpackbuilder.log')
   log.transports.file.level = 'info'
   log.transports.console.level = process.env.NODE_ENV === 'development' ? 'debug' : 'warn'
 }

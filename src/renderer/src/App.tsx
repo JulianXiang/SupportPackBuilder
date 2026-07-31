@@ -29,7 +29,7 @@ import { PreviewPanel } from './features/preview/PreviewPanel.js'
 import { WelcomeView } from './features/project/WelcomeView.js'
 import { InspectorPanel } from './features/settings/InspectorPanel.js'
 import { useProjectStore } from './stores/project-store.js'
-import { findMaterial, findOutlineNode } from './utils/project.js'
+import { findMaterial, findOutlineNode, removeMaterialsFromLayoutSheets } from './utils/project.js'
 
 type NewProjectValues = {
   title: string
@@ -375,12 +375,14 @@ export default function App(): React.JSX.Element {
         cancelText: '取消',
         onOk: () =>
           current.mutateProject(
-            (draft) =>
+            (draft) => {
               draft.outlineNodes.forEach((node) =>
                 node.children.forEach((child) => {
                   child.materials = child.materials.filter((item) => item.id !== material.id)
                 }),
-              ),
+              )
+              removeMaterialsFromLayoutSheets(draft, [material.id])
+            },
             { kind: 'project', id: projectId },
           ),
       })
@@ -512,9 +514,14 @@ export default function App(): React.JSX.Element {
     }
   }
 
-  const reconvertOffice = async (materialId: string, confirmPageReset = false): Promise<void> => {
+  const reconvertOffice = async (
+    materialId: string,
+    sourceId: string | undefined,
+    confirmPageReset = false,
+  ): Promise<void> => {
     const result = await window.supportPack.import.reconvertOffice({
       materialId,
+      ...(sourceId ? { sourceId } : {}),
       confirmPageReset,
     })
     if (!result.ok) {
@@ -528,7 +535,7 @@ export default function App(): React.JSX.Element {
         okText: '重新转换并重置页面编辑',
         okButtonProps: { danger: true },
         cancelText: '保留旧快照',
-        onOk: async () => await reconvertOffice(materialId, true),
+        onOk: async () => await reconvertOffice(materialId, sourceId, true),
       })
       return
     }
@@ -593,7 +600,9 @@ export default function App(): React.JSX.Element {
               onImportPortable={() => void importPortable()}
               onClearCache={clearCache}
               onRelocate={(materialId, sourceId) => void relocateSource(materialId, sourceId)}
-              onReconvertOffice={(materialId) => void reconvertOffice(materialId)}
+              onReconvertOffice={(materialId, sourceId) =>
+                void reconvertOffice(materialId, sourceId)
+              }
             />
           </div>
           <StatusBar

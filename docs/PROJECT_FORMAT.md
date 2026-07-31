@@ -19,15 +19,24 @@
 
 ## 2. schemaVersion
 
-当前版本为 `2`。读取流程先解析原始 JSON，再根据 schemaVersion 迁移，最后通过完整 Zod schema。未知高版本会被拒绝。
+当前版本为 `3`。读取流程先解析原始 JSON，再根据 schemaVersion 逐级迁移，最后通过完整 Zod schema。未知高版本会被拒绝。
 
-v1、缺少版本或版本 0 的旧项目会迁移到 v2：
+v1、缺少版本或版本 0 的旧项目会先迁移到 v2：
 
 - 一级、二级和材料标题中可识别的 `一、`、`（一）`、`1.` 前缀被清理，保留纯标题。
 - 缺少的新字段使用严格 schema 默认值补全。
 - 项目在内存中先校验为 v2，下一次保存仍走原子写入；旧 v1 文件会成为 `project.json.bak`，不会被直接覆盖。
 
 v2 不在 `title` 中保存序号。编号是 PagePlan 根据当前有效输出顺序派生的数据。
+
+v2 项目随后迁移到 v3：
+
+- 每个 `MaterialSource` 补充来源类型、独立页码范围和页数信息。
+- 材料根据来源项推导 `pdf`、`image`、`imageCollection`、`office` 或 `mixed`。
+- 旧 `startOnNewPage` 转换为明确的 `startPolicy`。
+- 补充项目级 `collageSettings` 和空的 `layoutSheets`，保持旧项目原有的独占页面输出。
+
+迁移在内存中完成，下一次保存仍走原子写入并把旧文件保留为 `project.json.bak`。
 
 ## 3. 路径规则
 
@@ -50,7 +59,7 @@ Project 保存基础信息、资产模式、封面、目录、页码、导出设
 
 OutlineNode 保存稳定 ID、父 ID、层级、标题、顺序、启用状态、标题页设置、children 和 materials。
 
-Material 保存兼容的单值文件摘要和完整 `sourceItems`。图片集合使用多个 MaterialSource；页面编辑以 sourcePageId 引用来源页。
+Material 保存兼容的单值文件摘要和完整 `sourceItems`。图片集合和混合材料可包含多个 MaterialSource；每个来源项保存自己的来源类型、页数和页码范围，页面编辑以 sourcePageId 引用来源页。
 
 Office 材料使用 `sourceType: "office"`，`MaterialSource.conversion` 包含：
 
@@ -66,6 +75,24 @@ Office 材料使用 `sourceType: "office"`，`MaterialSource.conversion` 包含�
 重复判断仍以 Office 原件的哈希、大小和原始文件名为准。页面顺序和编辑引用快照页，但 PDF 页面标记继续保存原材料 ID，不暴露路径。
 
 封面字段完整保存在 `coverSettings`。创建项目时它们从项目属性复制一次；之后 `title`、`ownerName`、`organization`、`purpose`、`compiledDate` 与封面字段互不覆盖。
+
+### 拼版配置
+
+Project 的 `collageSettings` 保存：
+
+- 是否启用拼版。
+- 默认 A4 方向、页边距、成果区段间距和槽位间距。
+- 自动建议每张纸的最大槽位数。
+- 清晰度警告阈值、阻止阈值和自动裁边安全余量。
+
+`layoutSheets` 保存用户确认的拼版布局。每张纸包含稳定 ID、锚点来源页、顺序、A4 方向、模板来源、自动/手动标志、跨目录确认、更新时间和一个或多个 `sections`。
+
+每个 section 对应一项成果，保存材料 ID、高度权重、标题显示规则和递归布局树。布局树只有两类节点：
+
+- `split`：`row` 或 `column`，至少两个子节点，权重总和归一化为 10000。
+- `slot`：稳定来源页 ID、0–10000 的归一化裁切矩形、`contain | cover | fitWidth | fitHeight`、九宫格对齐、0/90/180/270 度旋转、可选 `detailOf` 和清晰度风险确认。
+
+普通来源页只能有一个主槽；`detailOf` 用于有意保留“原图＋细节”的第二视图。页面计划保存布局摘要，但不把本地路径写入 PDF 标记。删除来源页时槽位可以暂时保留为缺失状态供用户修复；删除整项材料或目录时对应区段会从 `layoutSheets` 中清理。
 
 ## 5. 安全写入
 

@@ -36,8 +36,9 @@ export const layoutInlineHeadings = (
   plannedPage: PlannedPage,
   project: Project,
   font: PDFFont,
+  baseMarginsOverride?: PageMargins,
 ): InlineHeadingLayout => {
-  const baseMargins = project.exportSettings.margins
+  const baseMargins = baseMarginsOverride ?? project.exportSettings.margins
   const availableWidth = page.getWidth() - baseMargins.left - baseMargins.right
   let cursorY = page.getHeight() - baseMargins.top
   const lines: InlineHeadingLine[] = []

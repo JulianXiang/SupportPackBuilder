@@ -16,6 +16,7 @@ export const IDS = {
 
 export const createSourceFixture = (overrides: Partial<MaterialSource> = {}): MaterialSource => ({
   id: IDS.source,
+  sourceType: 'pdf',
   sourcePath: '/tmp/source.pdf',
   storedPath: 'assets/source.pdf',
   originalFileName: 'source.pdf',
@@ -24,6 +25,7 @@ export const createSourceFixture = (overrides: Partial<MaterialSource> = {}): Ma
   modifiedTime: 1_700_000_000_000,
   mimeType: 'application/pdf',
   pageCount: 3,
+  selectedPageRanges: 'all',
   ...overrides,
 })
 
@@ -47,7 +49,7 @@ export const createMaterialFixture = (overrides: Partial<Material> = {}): Materi
     rotationByPage: {},
     removedPages: [],
     enabled: true,
-    startOnNewPage: true,
+    startPolicy: 'newSheet',
     insertTitlePage: false,
     notes: '',
     validationStatus: 'valid',

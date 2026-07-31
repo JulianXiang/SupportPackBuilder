@@ -34,7 +34,7 @@ mac:
   icon: resources/icons/app.icns
   identity: null
 dmg:
-  artifactName: SupportPack-Builder-${version}-${arch}.${ext}
+  artifactName: SupportPackBuilder-${version}-${arch}.${ext}
 win:
   target:
     - target: nsis
@@ -47,4 +47,4 @@ nsis:
   createDesktopShortcut: true
   createStartMenuShortcut: true
   shortcutName: 个人支撑材料编排器
-  artifactName: SupportPack-Builder-Setup-${version}-${arch}.${ext}
+  artifactName: SupportPackBuilder-Setup-${version}-${arch}.${ext}

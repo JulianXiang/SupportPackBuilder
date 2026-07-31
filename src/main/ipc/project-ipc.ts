@@ -259,12 +259,7 @@ export const registerProjectIpc = (input: {
       const selectedPath = selection.filePaths[0]
       if (selection.canceled || !selectedPath) return null
       const validated = await validateSourceFile(selectedPath)
-      const expectedType =
-        material.sourceType === 'pdf'
-          ? 'pdf'
-          : material.sourceType === 'office'
-            ? 'office'
-            : 'image'
+      const expectedType = source.sourceType
       if (validated.sourceType !== expectedType) {
         throw new Error(
           `所选文件类型与原材料不一致。需要 ${
