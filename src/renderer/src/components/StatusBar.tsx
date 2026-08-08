@@ -8,6 +8,7 @@ import type { PagePlan } from '../../../shared/schemas/page-plan-schema.js'
 import type { Project } from '../../../shared/schemas/project-schema.js'
 import { calculatePaperSavings } from '../../../shared/utils/collage-metrics.js'
 import type { SaveStatus } from '../stores/project-store.js'
+import type { IssueSummary } from '../utils/issues.js'
 import { countEnabledMaterials, countMaterials } from '../utils/project.js'
 
 type StatusBarProps = {
@@ -16,6 +17,8 @@ type StatusBarProps = {
   pagePlan: PagePlan | null
   saveStatus: SaveStatus
   saveError: string | null
+  issueSummary: IssueSummary
+  onOpenIssues: (filter: 'missing' | 'error' | 'warning') => void
 }
 
 const saveLabel = (status: SaveStatus): React.ReactNode => {
@@ -50,17 +53,6 @@ const saveLabel = (status: SaveStatus): React.ReactNode => {
 }
 
 export const StatusBar = (props: StatusBarProps): React.JSX.Element => {
-  const materials = props.project.outlineNodes
-    .flatMap((node) => node.children)
-    .flatMap((node) => node.materials)
-  const missing = materials.filter((material) => material.validationStatus === 'missing').length
-  const errors =
-    materials.filter((material) =>
-      ['error', 'encrypted', 'unsupported'].includes(material.validationStatus),
-    ).length + (props.pagePlan?.errors.length ?? 0)
-  const warnings =
-    materials.filter((material) => material.validationStatus === 'warning').length +
-    (props.pagePlan?.warnings.length ?? 0)
   const ordinaryContentPages =
     props.pagePlan?.pages.filter(
       (page) => page.pageType === 'pdfContent' || page.pageType === 'imageContent',
@@ -85,9 +77,27 @@ export const StatusBar = (props: StatusBarProps): React.JSX.Element => {
           拼版节省 {paperSavings.savedPages} 页 · 双面约 {paperSavings.composedSheetsDuplex} 张
         </span>
       )}
-      <span className={missing ? 'status-danger' : ''}>缺失 {missing}</span>
-      <span className={errors ? 'status-danger' : ''}>错误 {errors}</span>
-      <span className={warnings ? 'status-warning' : ''}>警告 {warnings}</span>
+      <button
+        type="button"
+        className={`status-issue-button ${props.issueSummary.missing ? 'status-danger' : ''}`}
+        onClick={() => props.onOpenIssues('missing')}
+      >
+        缺失文件 {props.issueSummary.missing}
+      </button>
+      <button
+        type="button"
+        className={`status-issue-button ${props.issueSummary.errors ? 'status-danger' : ''}`}
+        onClick={() => props.onOpenIssues('error')}
+      >
+        其他错误 {props.issueSummary.errors}
+      </button>
+      <button
+        type="button"
+        className={`status-issue-button ${props.issueSummary.warnings ? 'status-warning' : ''}`}
+        onClick={() => props.onOpenIssues('warning')}
+      >
+        警告 {props.issueSummary.warnings}
+      </button>
       <span
         className={`save-status ${props.saveStatus === 'error' ? 'status-danger' : ''}`}
         title={props.saveError ?? undefined}

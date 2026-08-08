@@ -20,6 +20,7 @@ import type {
   ExportPreflight,
   ExportProgress,
   ExportResult,
+  ExportIssue,
 } from '../../../../shared/types/export.js'
 
 type ExportDialogProps = {
@@ -33,6 +34,7 @@ type ExportDialogProps = {
   onCancelTask: (taskId: string) => void
   onOpenResult: (path: string) => void
   onRevealResult: (path: string) => void
+  onLocateIssue: (issue: ExportIssue) => void
 }
 
 export const ExportDialog = (props: ExportDialogProps): React.JSX.Element => {
@@ -245,7 +247,17 @@ export const ExportDialog = (props: ExportDialogProps): React.JSX.Element => {
                     dataSource={props.preflight.errors}
                     renderItem={(item) => (
                       <List.Item>
-                        <Alert type="error" showIcon title={item} />
+                        <Alert
+                          type="error"
+                          showIcon
+                          title={item.message}
+                          description={item.suggestion}
+                          action={
+                            <Button size="small" onClick={() => props.onLocateIssue(item)}>
+                              定位修复
+                            </Button>
+                          }
+                        />
                       </List.Item>
                     )}
                   />
@@ -269,7 +281,17 @@ export const ExportDialog = (props: ExportDialogProps): React.JSX.Element => {
                     dataSource={props.preflight.warnings}
                     renderItem={(item) => (
                       <List.Item>
-                        <Alert type="warning" showIcon title={item} />
+                        <Alert
+                          type="warning"
+                          showIcon
+                          title={item.message}
+                          description={item.suggestion}
+                          action={
+                            <Button size="small" onClick={() => props.onLocateIssue(item)}>
+                              定位修复
+                            </Button>
+                          }
+                        />
                       </List.Item>
                     )}
                   />

@@ -1,6 +1,7 @@
 import { FileAddOutlined, FolderOpenOutlined, HistoryOutlined } from '@ant-design/icons'
 import { Button, Empty, List, Space, Typography } from 'antd'
 import type { RecentProjectView } from '../../../../preload/api-types.js'
+import { GettingStartedCard } from './GettingStartedCard.js'
 
 type WelcomeViewProps = {
   recentProjects: RecentProjectView[]
@@ -8,6 +9,9 @@ type WelcomeViewProps = {
   onOpen: () => void
   onOpenRecent: (project: RecentProjectView) => void
   onRemoveRecent: (project: RecentProjectView) => void
+  onSample: () => void
+  sampleCreating: boolean
+  showOnboarding: boolean
 }
 
 export const WelcomeView = (props: WelcomeViewProps): React.JSX.Element => (
@@ -30,7 +34,20 @@ export const WelcomeView = (props: WelcomeViewProps): React.JSX.Element => (
         <Button size="large" icon={<FolderOpenOutlined />} onClick={props.onOpen}>
           打开 project.json
         </Button>
+        {!props.showOnboarding && (
+          <Button size="large" loading={props.sampleCreating} onClick={props.onSample}>
+            体验示例项目
+          </Button>
+        )}
       </Space>
+      {props.showOnboarding && (
+        <GettingStartedCard
+          context="welcome"
+          onNew={props.onNew}
+          onSample={props.onSample}
+          sampleCreating={props.sampleCreating}
+        />
+      )}
       <div className="recent-section">
         <Typography.Title level={5}>
           <HistoryOutlined /> 最近项目

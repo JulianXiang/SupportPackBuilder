@@ -1,6 +1,7 @@
 import type { PagePlan } from '../shared/schemas/page-plan-schema.js'
 import type { Project } from '../shared/schemas/project-schema.js'
 import type { ProjectCreateInput } from '../shared/schemas/ipc-schema.js'
+import type { AppPreferences, AppPreferencesUpdate } from '../shared/schemas/preferences-schema.js'
 import type { ExportPreflight, ExportProgress, ExportResult } from '../shared/types/export.js'
 import type {
   ImportAnalysis,
@@ -37,6 +38,7 @@ export type AppCommand =
 export type SupportPackApi = {
   project: {
     create(input: ProjectCreateInput): Promise<Result<ProjectSessionView | null>>
+    createSample(): Promise<Result<ProjectSessionView | null>>
     open(): Promise<Result<ProjectSessionView | null>>
     openRecent(projectDirectory: string): Promise<Result<ProjectSessionView>>
     save(input: { project: Project; expectedRevision: number }): Promise<Result<ProjectSessionView>>
@@ -115,6 +117,10 @@ export type SupportPackApi = {
     respondToClose(action: 'save' | 'discard' | 'cancel'): void
     onBeforeClose(callback: () => void): () => void
     onCommand(callback: (command: AppCommand) => void): () => void
+  }
+  preferences: {
+    get(): Promise<Result<AppPreferences>>
+    update(input: AppPreferencesUpdate): Promise<Result<AppPreferences>>
   }
 }
 

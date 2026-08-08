@@ -8,7 +8,8 @@ import {
   SaveOutlined,
   SettingOutlined,
 } from '@ant-design/icons'
-import { Button, Divider, Space, Tooltip } from 'antd'
+import { Button, Divider, Segmented, Space, Tooltip } from 'antd'
+import type { ExperienceMode } from '../../../shared/schemas/preferences-schema.js'
 
 type TopToolbarProps = {
   hasProject: boolean
@@ -22,6 +23,8 @@ type TopToolbarProps = {
   onExport: () => void
   onProjectSettings: () => void
   onHelp: () => void
+  experienceMode: ExperienceMode
+  onExperienceModeChange: (mode: ExperienceMode) => void
 }
 
 export const TopToolbar = (props: TopToolbarProps): React.JSX.Element => (
@@ -75,17 +78,33 @@ export const TopToolbar = (props: TopToolbarProps): React.JSX.Element => (
       </Button>
     </Space>
     <div className="toolbar-spacer" />
+    <Segmented
+      size="small"
+      aria-label="界面模式"
+      value={props.experienceMode}
+      options={[
+        { label: '基础', value: 'basic' },
+        { label: '高级', value: 'advanced' },
+      ]}
+      onChange={(value) => props.onExperienceModeChange(value as ExperienceMode)}
+    />
     <Space size={2}>
       <Tooltip title="项目设置">
         <Button
           type="text"
           icon={<SettingOutlined />}
+          aria-label="项目设置"
           disabled={!props.hasProject}
           onClick={props.onProjectSettings}
         />
       </Tooltip>
       <Tooltip title="帮助与隐私说明">
-        <Button type="text" icon={<QuestionCircleOutlined />} onClick={props.onHelp} />
+        <Button
+          type="text"
+          icon={<QuestionCircleOutlined />}
+          aria-label="帮助与隐私说明"
+          onClick={props.onHelp}
+        />
       </Tooltip>
     </Space>
   </header>

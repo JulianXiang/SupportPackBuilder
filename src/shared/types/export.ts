@@ -1,5 +1,15 @@
 import type { PagePlan } from '../schemas/page-plan-schema.js'
 
+export type ExportIssue = {
+  code: string
+  severity: 'error' | 'warning'
+  source: 'pagePlan' | 'file'
+  message: string
+  suggestion: string
+  outlineNodeId: string | null
+  materialId: string | null
+}
+
 export type ExportStage =
   | 'validating'
   | 'planning'
@@ -55,8 +65,8 @@ export type ExportResult = {
 export type ExportPreflight = {
   taskId: string
   plan: PagePlan
-  errors: string[]
-  warnings: string[]
+  errors: ExportIssue[]
+  warnings: ExportIssue[]
   information: {
     materialCount: number
     totalPages: number

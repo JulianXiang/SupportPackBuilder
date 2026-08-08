@@ -4,7 +4,7 @@ import { rm } from 'node:fs/promises'
 import { basename, join } from 'node:path'
 import type { PagePlan } from '../shared/schemas/page-plan-schema.js'
 import type { Project } from '../shared/schemas/project-schema.js'
-import type { ExportPreflight, ExportResult } from '../shared/types/export.js'
+import type { ExportIssue, ExportPreflight, ExportResult } from '../shared/types/export.js'
 import type {
   PdfExportWorkerMessage,
   PdfExportWorkerStart,
@@ -15,6 +15,8 @@ import { assertProjectFileReferencesUnchanged } from './services/project-edit-gu
 import type { ProjectSession } from './services/project-service.js'
 import { writeProjectAtomically } from './services/project-service.js'
 import { RecentProjectService } from './services/recent-project-service.js'
+import { AppPreferencesService } from './services/app-preferences-service.js'
+import { createSampleProject } from './services/sample-project-service.js'
 import { ThumbnailService } from './services/thumbnail-service.js'
 import {
   synchronizeProjectFileStatuses,
@@ -39,6 +41,7 @@ type RunningExport = {
 export class AppRuntime {
   readonly importService: ImportService
   readonly recentProjects = new RecentProjectService()
+  readonly preferences = new AppPreferencesService()
   readonly #pagePlanService: PagePlanService
   readonly #workerDirectory: string
   readonly #fontPath: string
@@ -102,6 +105,17 @@ export class AppRuntime {
       title: session.project.title,
       lastOpenedAt: new Date().toISOString(),
     })
+  }
+
+  async createSample(parentDirectory: string): Promise<ProjectSession> {
+    const session = await createSampleProject({
+      parentDirectory,
+      fontPath: this.#fontPath,
+      boldFontPath: this.#boldFontPath,
+      importService: this.importService,
+    })
+    await this.setSession(session)
+    return session
   }
 
   acceptRendererProject(project: Project, revision: number): ProjectSession {
@@ -173,20 +187,60 @@ export class AppRuntime {
     const taskId = crypto.randomUUID()
     const fileChecks = await validateProjectFiles(session.projectDirectory, session.project)
     const quickPlan = this.#pagePlanService.preview(session.project, session.revision)
-    const errors = [
-      ...quickPlan.errors.map((issue) => issue.message),
-      ...fileChecks.flatMap((check) =>
-        check.status === 'error' || check.status === 'missing' || check.status === 'encrypted'
-          ? check.messages.map((message) => message.message)
-          : [],
+    const materialOutlineIds = new Map(
+      session.project.outlineNodes.flatMap((root) =>
+        root.children.flatMap((child) =>
+          child.materials.map((material) => [material.id, child.id] as const),
+        ),
       ),
-    ]
-    const warnings = [
-      ...quickPlan.warnings.map((issue) => issue.message),
-      ...fileChecks.flatMap((check) =>
-        check.status === 'warning' ? check.messages.map((message) => message.message) : [],
-      ),
-    ]
+    )
+    const planSuggestion = (code: string): string => {
+      if (code.startsWith('page-range-')) return '打开对应材料，检查并修正参与编排的页码范围。'
+      if (code === 'layout-disabled') return '启用多图拼版，或删除不再需要的拼版配置。'
+      if (code === 'layout-sheet-empty') return '删除没有任何内容的空拼版页。'
+      if (code.includes('order') || code.includes('anchor')) {
+        return '打开对应拼版页，按左侧目录顺序修复区段和锚点。'
+      }
+      if (code.startsWith('layout-clarity-')) return '打开对应拼版页检查清晰度并人工调整。'
+      if (code.startsWith('layout-')) return '打开对应拼版页检查来源、区段和页面顺序。'
+      return '打开对应项目、目录或材料属性进行检查。'
+    }
+    const toPlanIssue = (issue: (typeof quickPlan.errors)[number]): ExportIssue => ({
+      code: issue.code,
+      severity: issue.severity === 'error' ? 'error' : 'warning',
+      source: 'pagePlan',
+      message: issue.message,
+      suggestion: planSuggestion(issue.code),
+      outlineNodeId: issue.outlineNodeId,
+      materialId: issue.materialId,
+    })
+    const fileIssues = fileChecks.flatMap((check): ExportIssue[] =>
+      check.messages.map((message) => ({
+        code: message.code,
+        severity: message.severity === 'error' ? 'error' : 'warning',
+        source: 'file',
+        message: message.message,
+        suggestion: message.suggestion ?? '打开对应材料的来源文件维护区进行检查。',
+        outlineNodeId: materialOutlineIds.get(check.materialId) ?? null,
+        materialId: check.materialId,
+      })),
+    )
+    const dedupeIssues = (issues: ExportIssue[]): ExportIssue[] => {
+      const byTarget = new Map<string, ExportIssue>()
+      issues.forEach((issue) => {
+        const key = `${issue.code}:${issue.outlineNodeId ?? ''}:${issue.materialId ?? ''}`
+        const current = byTarget.get(key)
+        if (!current || issue.source === 'file') byTarget.set(key, issue)
+      })
+      return [...byTarget.values()]
+    }
+    const issues = dedupeIssues([
+      ...quickPlan.errors.map(toPlanIssue),
+      ...quickPlan.warnings.map(toPlanIssue),
+      ...fileIssues,
+    ])
+    const errors = issues.filter((issue) => issue.severity === 'error')
+    const warnings = issues.filter((issue) => issue.severity === 'warning')
     let prepared: PreparedPagePlan | null = null
     let plan = quickPlan
     if (errors.length === 0) {
@@ -303,14 +357,23 @@ export class AppRuntime {
     })
   }
 
-  cancelExport(taskId: string): void {
+  async cancelExport(taskId: string): Promise<void> {
     const running = this.#runningExports.get(taskId)
-    if (!running) return
-    running.process.postMessage({ type: 'cancel', taskId })
-    const process = running.process
-    setTimeout(() => {
-      if (this.#runningExports.has(taskId)) process.kill()
-    }, 2_500).unref()
+    if (running) {
+      running.process.postMessage({ type: 'cancel', taskId })
+      const process = running.process
+      setTimeout(() => {
+        if (this.#runningExports.has(taskId)) process.kill()
+      }, 2_500).unref()
+      return
+    }
+    const prepared = this.#preparedExports.get(taskId)
+    this.#preparedExports.delete(taskId)
+    if (prepared?.prepared) {
+      await rm(prepared.prepared.temporaryDirectory, { recursive: true, force: true }).catch(
+        () => undefined,
+      )
+    }
   }
 
   async cleanup(): Promise<void> {

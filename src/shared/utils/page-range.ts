@@ -229,3 +229,42 @@ export const parsePageRange = (expression: string, totalPages: number): PageRang
     errors: [],
   }
 }
+
+export const formatPageRange = (pages: readonly number[], totalPages: number): string => {
+  const normalized = [...new Set(pages)].sort((left, right) => left - right)
+  if (
+    totalPages > 0 &&
+    normalized.length === totalPages &&
+    normalized.every((page, index) => page === index + 1)
+  ) {
+    return 'all'
+  }
+  const segments: string[] = []
+  let start: number | undefined
+  let previous: number | undefined
+  const flush = (): void => {
+    if (start === undefined || previous === undefined) return
+    segments.push(start === previous ? String(start) : `${start}-${previous}`)
+  }
+  normalized.forEach((page) => {
+    if (start === undefined) {
+      start = page
+      previous = page
+      return
+    }
+    if (previous !== undefined && page === previous + 1) {
+      previous = page
+      return
+    }
+    flush()
+    start = page
+    previous = page
+  })
+  flush()
+  return segments.join(',')
+}
+
+export const normalizePageRange = (expression: string, totalPages: number): string | null => {
+  const parsed = parsePageRange(expression, totalPages)
+  return parsed.success ? formatPageRange(parsed.pages, totalPages) : null
+}

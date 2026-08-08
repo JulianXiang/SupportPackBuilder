@@ -66,8 +66,6 @@ export const registerExportIpc = (input: {
     schema: ExportCancelInputSchema,
     stage: '取消 PDF 导出',
     mainWindow,
-    handler: ({ taskId }) => {
-      runtime.cancelExport(taskId)
-    },
+    handler: async ({ taskId }) => await runtime.cancelExport(taskId),
   })
 }

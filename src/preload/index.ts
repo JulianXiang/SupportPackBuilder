@@ -41,6 +41,7 @@ window.addEventListener(
 const api: SupportPackApi = {
   project: {
     create: async (input: ProjectCreateInput) => await invoke(IPC_CHANNELS.projectCreate, input),
+    createSample: async () => await invoke(IPC_CHANNELS.projectCreateSample),
     open: async () => await invoke(IPC_CHANNELS.projectOpen),
     openRecent: async (projectDirectory) =>
       await invoke(IPC_CHANNELS.projectOpenRecent, { projectDirectory }),
@@ -123,6 +124,10 @@ const api: SupportPackApi = {
       ipcRenderer.on(IPC_CHANNELS.appCommand, listener)
       return () => ipcRenderer.removeListener(IPC_CHANNELS.appCommand, listener)
     },
+  },
+  preferences: {
+    get: async () => await invoke(IPC_CHANNELS.preferencesGet),
+    update: async (input) => await invoke(IPC_CHANNELS.preferencesUpdate, input),
   },
 }
 

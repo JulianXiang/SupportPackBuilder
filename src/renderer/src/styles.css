@@ -952,7 +952,8 @@ button {
   border-top: 1px solid #cbd1d7;
   font-size: 10px;
 }
-.status-bar > span {
+.status-bar > span,
+.status-bar > .status-issue-button {
   height: 100%;
   display: flex;
   align-items: center;
@@ -960,6 +961,18 @@ button {
   padding: 0 9px;
   border-right: 1px solid #dde1e5;
   white-space: nowrap;
+}
+.status-issue-button {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.status-issue-button:hover,
+.status-issue-button:focus-visible {
+  background: #e8edf2;
+  outline: none;
 }
 .status-bar .save-status {
   margin-left: auto;
@@ -1011,6 +1024,85 @@ button {
 }
 .recent-section {
   margin-top: 34px;
+}
+.getting-started-card {
+  border-color: #c6d8e8;
+  background: #f8fbfe;
+}
+.welcome-guide {
+  margin-top: 24px;
+}
+.getting-started-card .ant-steps-item-description {
+  max-width: 145px;
+  font-size: 11px;
+}
+.getting-started-note {
+  margin: 16px 0 10px !important;
+}
+.project-guide-wrap {
+  flex: 0 0 auto;
+  padding: 10px 12px 0;
+  background: #e8ebee;
+}
+.project-guide .ant-card-body {
+  padding: 12px 16px;
+}
+.page-range-detail-input,
+.technical-details-collapse {
+  margin-top: 10px;
+}
+.technical-details-collapse .ant-collapse-content-box {
+  padding: 10px 0 0 !important;
+}
+.issue-empty {
+  margin-top: 72px;
+}
+.issue-group {
+  margin-top: 22px;
+}
+.issue-group > .ant-typography {
+  margin-bottom: 10px;
+}
+.issue-list {
+  display: grid;
+  gap: 10px;
+}
+.issue-card {
+  display: grid;
+  gap: 8px;
+  padding: 13px 14px;
+  border: 1px solid #d8dee5;
+  border-left-width: 3px;
+  border-radius: 5px;
+  background: #fff;
+}
+.issue-card.issue-error {
+  border-left-color: #b42318;
+}
+.issue-card.issue-warning {
+  border-left-color: #c07a00;
+}
+.issue-card-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+.issue-card .ant-typography {
+  margin-bottom: 0;
+}
+.issue-code {
+  flex: 0 1 auto;
+  overflow-wrap: anywhere;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 10px;
+  text-align: right;
+}
+.issue-location {
+  font-size: 11px;
+}
+.issue-actions {
+  margin-top: 2px;
 }
 .recent-project-link {
   padding: 0;

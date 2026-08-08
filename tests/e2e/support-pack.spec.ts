@@ -140,6 +140,8 @@ test('完成真实项目、导入、页面编辑、保存、重开和 A4 PDF 导
   })
 
   await expect(window.getByText('整理个人支撑材料', { exact: true })).toBeVisible()
+  await expect(window.getByRole('radio', { name: '基础' })).toBeChecked()
+  await expect(window.getByText('四步完成支撑材料编排')).toBeVisible()
   await window.getByRole('button', { name: '新建项目' }).first().click()
   const newDialog = window.getByRole('dialog')
   await newDialog.getByLabel('项目名称').fill('2026 年度个人成果支撑材料')
@@ -150,7 +152,15 @@ test('完成真实项目、导入、页面编辑、保存、重开和 A4 PDF 导
   await window.getByText('自定义空白模板', { exact: true }).click()
   await newDialog.getByRole('button', { name: '选择位置并创建' }).click()
 
-  await expect(window.getByText('项目目录', { exact: true })).toBeVisible()
+  await expect(window.getByText('四步完成支撑材料编排')).toBeVisible()
+  await window.getByRole('button', { name: '关闭新手引导' }).click()
+  await expect(window.getByText('四步完成支撑材料编排')).toBeHidden()
+  await window.getByRole('button', { name: '帮助与隐私说明' }).click()
+  const helpDialog = window.getByRole('dialog', { name: '帮助与隐私说明' })
+  await helpDialog.getByRole('button', { name: '重新显示新手引导' }).click()
+  await expect(window.getByText('四步完成支撑材料编排')).toBeVisible()
+  await window.getByRole('button', { name: '关闭新手引导' }).click()
+  await expect(window.getByText('项目路径', { exact: true })).toBeHidden()
   const inspector = window.locator('.inspector-panel')
   await inspector.getByLabel('项目名称').fill('修改后的项目属性名称')
   await inspector.getByLabel('项目名称').blur()
@@ -241,6 +251,8 @@ test('完成真实项目、导入、页面编辑、保存、重开和 A4 PDF 导
   })
 
   await outline.getByTitle('ten-pages-a4', { exact: true }).click()
+  await window.getByLabel('参与编排的页面').click()
+  await window.getByText('指定页码范围', { exact: true }).click()
   const rangeInput = window.getByLabel('PDF 页码范围')
   await rangeInput.fill('1,3,5-7')
   await rangeInput.blur()
@@ -355,8 +367,8 @@ test('完成真实项目、导入、页面编辑、保存、重开和 A4 PDF 导
   const previewResult = await window.evaluate(
     async () => await globalThis.window.supportPack.preview.refresh(),
   )
-  expect(previewResult.ok).toBe(true)
   if (!previewResult.ok) throw new Error(previewResult.error.message)
+  expect(previewResult.ok).toBe(true)
   const previewPlan = previewResult.value
   expect(
     previewPlan.pages.filter((plannedPage) => plannedPage.pageType === 'compositeContent'),
@@ -437,6 +449,7 @@ test('完成真实项目、导入、页面编辑、保存、重开和 A4 PDF 导
     window.locator('.page-card').filter({ hasText: `物理页 ${previewPlan.totalPageCount}` }),
   ).toBeVisible()
 
+  await previewScrollbar.focus()
   await window.keyboard.press('Home')
   await expect
     .poll(async () => await previewScroll.evaluate((element) => element.scrollTop))

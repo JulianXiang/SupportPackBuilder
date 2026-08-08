@@ -15,6 +15,7 @@ import { registerFileIpc } from './ipc/file-ipc.js'
 import { assertTrustedSender } from './ipc/ipc-helpers.js'
 import { registerPreviewIpc } from './ipc/preview-ipc.js'
 import { registerProjectIpc } from './ipc/project-ipc.js'
+import { registerPreferencesIpc } from './ipc/preferences-ipc.js'
 import { registerSystemIpc } from './ipc/system-ipc.js'
 import { initializeLogService, appLog } from './services/log-service.js'
 import { createMainWindow, loadMainWindow } from './windows/main-window.js'
@@ -209,6 +210,7 @@ const start = async (): Promise<void> => {
   })
   runtime = appRuntime
   registerProjectIpc({ mainWindow: window, runtime: appRuntime })
+  registerPreferencesIpc({ mainWindow: window, runtime: appRuntime })
   registerFileIpc({ mainWindow: window, runtime: appRuntime })
   registerPreviewIpc({ mainWindow: window, runtime: appRuntime })
   registerExportIpc({ mainWindow: window, runtime: appRuntime })

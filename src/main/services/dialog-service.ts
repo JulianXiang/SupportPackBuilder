@@ -10,6 +10,7 @@ import {
 
 type TestDialogKey =
   | 'projectParent'
+  | 'sampleProjectParent'
   | 'projectOpen'
   | 'saveAsParent'
   | 'duplicateParent'

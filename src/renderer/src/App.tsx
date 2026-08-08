@@ -13,7 +13,18 @@ import {
 import dayjs from 'dayjs'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { RecentProjectView } from '../../preload/api-types.js'
-import type { ExportPreflight, ExportProgress, ExportResult } from '../../shared/types/export.js'
+import {
+  DEFAULT_APP_PREFERENCES,
+  ONBOARDING_VERSION,
+  type AppPreferencesUpdate,
+  type ExperienceMode,
+} from '../../shared/schemas/preferences-schema.js'
+import type {
+  ExportIssue,
+  ExportPreflight,
+  ExportProgress,
+  ExportResult,
+} from '../../shared/types/export.js'
 import type {
   ImportAnalysis,
   ImportAnalysisProgress,
@@ -24,12 +35,20 @@ import { TopToolbar } from './components/TopToolbar.js'
 import { StatusBar } from './components/StatusBar.js'
 import { ExportDialog } from './features/export/ExportDialog.js'
 import { ImportDialog } from './features/materials/ImportDialog.js'
+import { IssueCenter, type IssueFilter } from './features/issues/IssueCenter.js'
 import { OutlinePanel } from './features/outline/OutlinePanel.js'
 import { PreviewPanel } from './features/preview/PreviewPanel.js'
 import { WelcomeView } from './features/project/WelcomeView.js'
 import { InspectorPanel } from './features/settings/InspectorPanel.js'
 import { useProjectStore } from './stores/project-store.js'
 import { findMaterial, findOutlineNode, removeMaterialsFromLayoutSheets } from './utils/project.js'
+import { applySafeIssueFix, safeIssueFixKind, safeIssueFixLabel } from './utils/issue-fixes.js'
+import {
+  collectIssueViews,
+  exportIssueViews,
+  summarizeIssues,
+  type IssueView,
+} from './utils/issues.js'
 
 type NewProjectValues = {
   title: string
@@ -55,6 +74,8 @@ export default function App(): React.JSX.Element {
   const [recentProjects, setRecentProjects] = useState<RecentProjectView[]>([])
   const [newProjectOpen, setNewProjectOpen] = useState(false)
   const [newProjectSaving, setNewProjectSaving] = useState(false)
+  const [sampleProjectCreating, setSampleProjectCreating] = useState(false)
+  const [preferences, setPreferences] = useState({ ...DEFAULT_APP_PREFERENCES })
   const [newProjectForm] = Form.useForm<NewProjectValues>()
   const [importAnalysis, setImportAnalysis] = useState<ImportAnalysis | null>(null)
   const [importProgress, setImportProgress] = useState<ImportAnalysisProgress | null>(null)
@@ -66,8 +87,44 @@ export default function App(): React.JSX.Element {
   const [exportResult, setExportResult] = useState<ExportResult | null>(null)
   const [helpOpen, setHelpOpen] = useState(false)
   const [closePromptOpen, setClosePromptOpen] = useState(false)
+  const [issueCenterOpen, setIssueCenterOpen] = useState(false)
+  const [issueFilter, setIssueFilter] = useState<IssueFilter>('all')
+  const [issueFocusRequest, setIssueFocusRequest] = useState<{
+    token: number
+    pageId: string
+    openCollage: boolean
+  } | null>(null)
+  const [pendingIssueFix, setPendingIssueFix] = useState<{
+    revision: number
+    code: string
+    outlineNodeId: string | null
+    materialId: string | null
+    message: string
+  } | null>(null)
+  const [maintenanceRequest, setMaintenanceRequest] = useState<{
+    token: number
+    materialId: string
+  } | null>(null)
   const previewRequestId = useRef(0)
   const autoSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const issues = useMemo(
+    () => (store.project ? collectIssueViews(store.project, store.pagePlan) : []),
+    [store.pagePlan, store.project],
+  )
+  const issueSummary = useMemo(() => summarizeIssues(issues), [issues])
+
+  useEffect(() => {
+    if (!pendingIssueFix || (store.pagePlan?.revision ?? -1) < pendingIssueFix.revision) return
+    const remains = issues.some(
+      (issue) =>
+        issue.code === pendingIssueFix.code &&
+        issue.outlineNodeId === pendingIssueFix.outlineNodeId &&
+        issue.materialId === pendingIssueFix.materialId,
+    )
+    if (remains) void message.warning('修复已写入项目配置，但问题仍存在，请继续检查。')
+    else void message.success(pendingIssueFix.message)
+    setPendingIssueFix(null)
+  }, [issues, message, pendingIssueFix, store.pagePlan?.revision])
 
   const showError = useCallback(
     (title: string, detail: string): void => {
@@ -84,6 +141,35 @@ export default function App(): React.JSX.Element {
   useEffect(() => {
     void refreshRecent()
   }, [refreshRecent])
+
+  useEffect(() => {
+    void window.supportPack.preferences.get().then((result) => {
+      if (result.ok) setPreferences(result.value)
+      else void message.warning('界面偏好读取失败，已使用基础模式和默认引导。')
+    })
+  }, [message])
+
+  const updatePreferences = useCallback(
+    async (update: AppPreferencesUpdate): Promise<boolean> => {
+      const previous = preferences
+      setPreferences({
+        ...previous,
+        ...(update.experienceMode !== undefined ? { experienceMode: update.experienceMode } : {}),
+        ...(update.dismissedOnboardingVersion !== undefined
+          ? { dismissedOnboardingVersion: update.dismissedOnboardingVersion }
+          : {}),
+      })
+      const result = await window.supportPack.preferences.update(update)
+      if (result.ok) {
+        setPreferences(result.value)
+        return true
+      }
+      setPreferences(previous)
+      void message.error(`界面偏好保存失败：${result.error.message}`)
+      return false
+    },
+    [message, preferences],
+  )
 
   const applySession = useCallback(
     (session: Parameters<typeof store.setSession>[0]): void => {
@@ -177,6 +263,29 @@ export default function App(): React.JSX.Element {
       })
     } else open()
   }, [modal, newProjectForm])
+
+  const requestSampleProject = useCallback((): void => {
+    const create = async (): Promise<void> => {
+      setSampleProjectCreating(true)
+      const result = await window.supportPack.project.createSample()
+      setSampleProjectCreating(false)
+      if (!result.ok) showError('创建示例项目失败', result.error.message)
+      else if (result.value) {
+        applySession(result.value)
+        void message.success('示例项目已创建，可自由编辑、保存和导出。')
+      }
+    }
+    if (useProjectStore.getState().dirty) {
+      modal.confirm({
+        title: '当前项目有未保存修改',
+        content: '创建示例项目会切换当前项目并丢弃尚未保存的修改。',
+        okText: '丢弃并创建示例',
+        okButtonProps: { danger: true },
+        cancelText: '取消',
+        onOk: create,
+      })
+    } else void create()
+  }, [applySession, message, modal, showError])
 
   const createProject = async (): Promise<void> => {
     const values = await newProjectForm.validateFields()
@@ -305,6 +414,7 @@ export default function App(): React.JSX.Element {
   const checkExport = useCallback(async (): Promise<void> => {
     const current = useProjectStore.getState()
     if (!current.project) return
+    if (exportPreflight) await window.supportPack.export.cancel(exportPreflight.taskId)
     setExportChecking(true)
     setExportPreflight(null)
     setExportProgress(null)
@@ -316,7 +426,7 @@ export default function App(): React.JSX.Element {
     setExportChecking(false)
     if (!result.ok) showError('导出前检查失败', result.error.message)
     else setExportPreflight(result.value)
-  }, [showError])
+  }, [exportPreflight, showError])
 
   const startExport = async (taskId: string): Promise<void> => {
     setExportStarting(true)
@@ -548,6 +658,88 @@ export default function App(): React.JSX.Element {
     )
   }
 
+  const locateIssue = (issue: IssueView): void => {
+    const layoutIssue = issue.code.startsWith('layout-')
+    if (layoutIssue && issue.pageId) {
+      store.setSelectedPageIds([issue.pageId])
+      store.setSelection({ kind: 'page', id: issue.pageId })
+      setIssueFocusRequest({
+        token: Date.now(),
+        pageId: issue.pageId,
+        openCollage: true,
+      })
+    } else if (issue.materialId) {
+      store.setSelection({ kind: 'material', id: issue.materialId })
+      if (
+        issue.code.startsWith('source-') ||
+        issue.code.startsWith('office-snapshot-') ||
+        issue.code.startsWith('material-status-')
+      ) {
+        setMaintenanceRequest({ token: Date.now(), materialId: issue.materialId })
+      }
+    } else if (issue.outlineNodeId) {
+      store.setSelection({ kind: 'outline', id: issue.outlineNodeId })
+    } else if (issue.pageId) {
+      store.setSelectedPageIds([issue.pageId])
+      store.setSelection({ kind: 'page', id: issue.pageId })
+    } else if (store.project) {
+      store.setSelection({ kind: 'project', id: store.project.id })
+    }
+    setIssueCenterOpen(false)
+  }
+
+  const fixIssue = (issue: IssueView): void => {
+    const kind = safeIssueFixKind(issue)
+    if (!kind) {
+      locateIssue(issue)
+      return
+    }
+    modal.confirm({
+      title: `确认${safeIssueFixLabel(kind)}？`,
+      content: '该操作只修改项目配置，可使用“撤销”恢复；不会修改原始 PDF、图片或 Office 文件。',
+      okText: '确认修复',
+      cancelText: '取消',
+      onOk: () => {
+        let outcome: ReturnType<typeof applySafeIssueFix> = {
+          changed: false,
+          message: '未执行修复。',
+        }
+        store.mutateProject((draft) => {
+          outcome = applySafeIssueFix(draft, issue)
+        })
+        if (outcome.changed) {
+          setPendingIssueFix({
+            revision: useProjectStore.getState().revision,
+            code: issue.code,
+            outlineNodeId: issue.outlineNodeId,
+            materialId: issue.materialId,
+            message: outcome.message,
+          })
+        } else void message.info(outcome.message)
+      },
+    })
+  }
+
+  const locateExportIssue = async (issue: ExportIssue): Promise<void> => {
+    if (!store.project || !exportPreflight) return
+    const preflight = exportPreflight
+    const view = exportIssueViews(store.project, preflight.plan, [issue])[0]
+    setExportPreflight(null)
+    setExportResult(null)
+    setExportProgress(null)
+    const cancelled = await window.supportPack.export.cancel(preflight.taskId)
+    if (!cancelled.ok) showError('无法废弃导出检查', cancelled.error.message)
+    if (view) locateIssue(view)
+  }
+
+  const closeExportDialog = (): void => {
+    if (exportProgress && !exportResult) return
+    const taskId = exportPreflight?.taskId
+    setExportPreflight(null)
+    setExportResult(null)
+    if (taskId) void window.supportPack.export.cancel(taskId)
+  }
+
   return (
     <div className="app-shell">
       <TopToolbar
@@ -564,6 +756,10 @@ export default function App(): React.JSX.Element {
           store.project && store.setSelection({ kind: 'project', id: store.project.id })
         }
         onHelp={() => setHelpOpen(true)}
+        experienceMode={preferences.experienceMode}
+        onExperienceModeChange={(mode: ExperienceMode) =>
+          void updatePreferences({ experienceMode: mode })
+        }
       />
       {store.project && store.projectDirectory ? (
         <>
@@ -588,6 +784,15 @@ export default function App(): React.JSX.Element {
               }}
               onMutate={store.mutateProject}
               onRefresh={() => void refreshPlan()}
+              showGettingStarted={preferences.dismissedOnboardingVersion < ONBOARDING_VERSION}
+              onDismissGettingStarted={() =>
+                void updatePreferences({ dismissedOnboardingVersion: ONBOARDING_VERSION })
+              }
+              onImport={() => void analyzeImport('files')}
+              onExport={() => void checkExport()}
+              experienceMode={preferences.experienceMode}
+              onSwitchAdvanced={() => void updatePreferences({ experienceMode: 'advanced' })}
+              issueFocusRequest={issueFocusRequest}
             />
             <InspectorPanel
               project={store.project}
@@ -603,6 +808,8 @@ export default function App(): React.JSX.Element {
               onReconvertOffice={(materialId, sourceId) =>
                 void reconvertOffice(materialId, sourceId)
               }
+              experienceMode={preferences.experienceMode}
+              maintenanceRequest={maintenanceRequest}
             />
           </div>
           <StatusBar
@@ -611,6 +818,11 @@ export default function App(): React.JSX.Element {
             pagePlan={store.pagePlan}
             saveStatus={store.saveStatus}
             saveError={store.saveError}
+            issueSummary={issueSummary}
+            onOpenIssues={(filter) => {
+              setIssueFilter(filter)
+              setIssueCenterOpen(true)
+            }}
           />
         </>
       ) : (
@@ -624,6 +836,9 @@ export default function App(): React.JSX.Element {
               .removeRecent(recent.projectDirectory)
               .then(() => refreshRecent())
           }
+          onSample={requestSampleProject}
+          sampleCreating={sampleProjectCreating}
+          showOnboarding={preferences.dismissedOnboardingVersion < ONBOARDING_VERSION}
         />
       )}
 
@@ -722,16 +937,22 @@ export default function App(): React.JSX.Element {
         progress={exportProgress}
         result={exportResult}
         starting={exportStarting}
-        onClose={() => {
-          if (!exportProgress) {
-            setExportPreflight(null)
-            setExportResult(null)
-          }
-        }}
+        onClose={closeExportDialog}
         onStart={(taskId) => void startExport(taskId)}
         onCancelTask={(taskId) => void window.supportPack.export.cancel(taskId)}
         onOpenResult={(path) => void window.supportPack.system.openPath(path)}
         onRevealResult={(path) => void window.supportPack.system.revealPath(path)}
+        onLocateIssue={(issue) => void locateExportIssue(issue)}
+      />
+
+      <IssueCenter
+        open={issueCenterOpen}
+        issues={issues}
+        filter={issueFilter}
+        onFilterChange={setIssueFilter}
+        onClose={() => setIssueCenterOpen(false)}
+        onLocate={locateIssue}
+        onFix={fixIssue}
       />
 
       <Modal
@@ -757,6 +978,14 @@ export default function App(): React.JSX.Element {
             支持 PDF、JPG、JPEG、PNG、WebP，以及通过应用内置 LibreOffice 离线转换的
             DOCX、PPTX、XLSX。暂不支持旧版 Office、宏文件、密码文件、OCR、正文编辑、签章和云同步。
           </Typography.Paragraph>
+          <Button
+            onClick={() => {
+              void updatePreferences({ dismissedOnboardingVersion: 0 })
+              setHelpOpen(false)
+            }}
+          >
+            重新显示新手引导
+          </Button>
         </Space>
       </Modal>
 

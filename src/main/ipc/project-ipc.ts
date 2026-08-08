@@ -76,6 +76,23 @@ export const registerProjectIpc = (input: {
   })
 
   registerValidatedHandler({
+    channel: IPC_CHANNELS.projectCreateSample,
+    schema: EmptyInputSchema,
+    stage: '创建示例项目',
+    mainWindow,
+    handler: async () => {
+      const selection = await showOpenDialog(mainWindow, 'sampleProjectParent', {
+        title: '选择示例项目保存位置',
+        buttonLabel: '在此创建示例项目',
+        properties: ['openDirectory', 'createDirectory'],
+      })
+      const parentDirectory = selection.filePaths[0]
+      if (selection.canceled || !parentDirectory) return null
+      return toView(await runtime.createSample(parentDirectory))
+    },
+  })
+
+  registerValidatedHandler({
     channel: IPC_CHANNELS.projectOpen,
     schema: EmptyInputSchema,
     stage: '打开项目',

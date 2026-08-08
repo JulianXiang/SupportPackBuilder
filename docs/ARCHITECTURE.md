@@ -4,15 +4,15 @@
 
 ### Main
 
-负责 BrowserWindow、安全策略、项目会话、对话框、文件导入、OOXML 检查、Office 转换调度、校验、PagePlan 协调、打印窗口、缓存协议、后台导出和系统打开操作。
+负责 BrowserWindow、安全策略、项目会话、全局体验偏好、本机示例项目生成、对话框、文件导入、OOXML 检查、Office 转换调度、校验、PagePlan 协调、打印窗口、缓存协议、后台导出和系统打开操作。
 
 ### Preload
 
-通过 `contextBridge` 暴露 `window.supportPack`。API 按 project、import、preview、export、system 和 app 分组，不暴露 `ipcRenderer`、`fs`、`path`、`shell` 或任意通道发送器。
+通过 `contextBridge` 暴露 `window.supportPack`。API 按 project、import、preview、export、system、app 和 preferences 分组，不暴露 `ipcRenderer`、`fs`、`path`、`shell` 或任意通道发送器。
 
 ### Renderer
 
-React、Ant Design 和 Zustand 负责结构化项目编辑、选择状态、操作历史、虚拟化预览、拼版工作台和进度界面。拼版工作台只编辑 `layoutSheets` 结构化配置；Renderer 不读取文件、不持有 PDF/图片/Office 二进制、不启动转换程序、不合并 PDF，也不自行决定最终页面顺序。
+React、Ant Design 和 Zustand 负责结构化项目编辑、基础/高级模式、统一问题中心、选择状态、操作历史、虚拟化预览、拼版工作台和进度界面。拼版工作台只编辑 `layoutSheets` 结构化配置；问题中心只消费材料校验与 PagePlan，不参与排序。Renderer 不读取文件、不持有 PDF/图片/Office 二进制、不启动转换程序、不合并 PDF，也不自行决定最终页面顺序。
 
 ### 隐藏打印窗口
 
@@ -134,6 +134,10 @@ PagePlan 会把每个有效布局解析成 `CompositePagePlan`，并用布局摘
 ## 6. 状态与历史
 
 Zustand 保存项目结构、revision、dirty、PagePlan、选择和最多 50 步历史，不保存大型二进制。修改停止 1.5 秒后自动保存；失败时 dirty 保持为真。
+
+基础/高级模式和按版本关闭的新手引导保存在独立 ElectronStore 中，不进入 `project.json`。读取损坏或语义无效时回退到基础模式并重新显示引导。
+
+`IssueView` 按代码与目录/材料目标稳定去重。文件与 Office 问题优先采用材料实时校验，页码和拼版问题优先采用 PagePlan；状态栏、右侧抽屉和导出预检消费同一结构化问题语义。安全修复只通过 Zustand 项目变更执行，等待对应 revision 的 PagePlan 重算后再报告结果，因此进入同一撤销栈且不修改来源文件。
 
 ## 7. 异常处理
 

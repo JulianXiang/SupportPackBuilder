@@ -22,6 +22,7 @@ import { useVirtualizer } from '@tanstack/react-virtual'
 import { App, Badge, Button, Empty, Modal, Slider, Space, Spin, Tag, Tooltip } from 'antd'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { PagePlan, PlannedPage } from '../../../../shared/schemas/page-plan-schema.js'
+import type { ExperienceMode } from '../../../../shared/schemas/preferences-schema.js'
 import type { Project, Rotation } from '../../../../shared/schemas/project-schema.js'
 import { A4_SIZE_POINTS } from '../../../../shared/constants/document.js'
 import { suggestCollage } from '../../../../shared/utils/collage-suggestion.js'
@@ -29,6 +30,7 @@ import { getSelectedSourcePages } from '../../../../shared/utils/page-plan.js'
 import type { Selection } from '../../stores/project-store.js'
 import { findMaterial } from '../../utils/project.js'
 import { CollageWorkbench, type CollageWorkbenchSource } from '../collage/CollageWorkbench.js'
+import { GettingStartedCard } from '../project/GettingStartedCard.js'
 import {
   calculatePreviewScrollbarMetrics,
   calculatePreviewScrollbarThumbTop,
@@ -208,6 +210,17 @@ type PreviewPanelProps = {
   onSelectionChange: (ids: string[], primary: string | null) => void
   onMutate: (mutator: (draft: Project) => void, selection?: Selection) => void
   onRefresh: () => void
+  showGettingStarted: boolean
+  onDismissGettingStarted: () => void
+  onImport: () => void
+  onExport: () => void
+  experienceMode: ExperienceMode
+  onSwitchAdvanced: () => void
+  issueFocusRequest: {
+    token: number
+    pageId: string
+    openCollage: boolean
+  } | null
 }
 
 type CollageWorkbenchState = {
@@ -243,6 +256,9 @@ export const PreviewPanel = (props: PreviewPanelProps): React.JSX.Element => {
   const virtualPageHeight = virtualizer.getTotalSize()
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }))
   const selected = useMemo(() => new Set(props.selectedPageIds), [props.selectedPageIds])
+  const materialCount = props.project.outlineNodes
+    .flatMap((node) => node.children)
+    .flatMap((node) => node.materials).length
   const canonicalSourceOrder = useMemo(() => {
     const sourceIds = [...props.project.outlineNodes]
       .sort((left, right) => left.order - right.order)
@@ -466,9 +482,10 @@ export const PreviewPanel = (props: PreviewPanelProps): React.JSX.Element => {
     }
   }
 
-  const openCollageWorkbench = (): void => {
+  const openCollageWorkbench = (pageIds = props.selectedPageIds): void => {
     if (!props.plan) return
-    const selectedPages = pages.filter((page) => selected.has(page.id))
+    const targetPageIds = new Set(pageIds)
+    const selectedPages = pages.filter((page) => targetPageIds.has(page.id))
     const selectedComposite = selectedPages.filter(
       (page) => page.pageType === 'compositeContent' && page.composite,
     )
@@ -591,6 +608,13 @@ export const PreviewPanel = (props: PreviewPanelProps): React.JSX.Element => {
       buildSuggestion(false)
     }
   }
+
+  useEffect(() => {
+    const request = props.issueFocusRequest
+    if (!request || !pages.some((page) => page.id === request.pageId)) return
+    props.onSelectionChange([request.pageId], request.pageId)
+    if (request.openCollage) openCollageWorkbench([request.pageId])
+  }, [props.issueFocusRequest])
 
   const mutateSelectedPages = (
     operation: 'left' | 'right' | 'delete' | 'restoreRotation',
@@ -718,7 +742,7 @@ export const PreviewPanel = (props: PreviewPanelProps): React.JSX.Element => {
               size="small"
               icon={<AppstoreAddOutlined />}
               disabled={props.selectedPageIds.length === 0}
-              onClick={openCollageWorkbench}
+              onClick={() => openCollageWorkbench()}
             >
               多图拼版
             </Button>
@@ -740,6 +764,18 @@ export const PreviewPanel = (props: PreviewPanelProps): React.JSX.Element => {
           <Slider min={145} max={290} value={thumbnailWidth} onChange={setThumbnailWidth} />
         </div>
       </div>
+      {props.showGettingStarted && (
+        <div className="project-guide-wrap">
+          <GettingStartedCard
+            context="project"
+            materialCount={materialCount}
+            planReady={props.plan?.errors.length === 0}
+            onImport={props.onImport}
+            onExport={props.onExport}
+            onDismiss={props.onDismissGettingStarted}
+          />
+        </div>
+      )}
       <div className="preview-viewport">
         <div
           id="preview-scroll-region"
@@ -841,6 +877,8 @@ export const PreviewPanel = (props: PreviewPanelProps): React.JSX.Element => {
           sources={collageWorkbench.sources}
           initialSheets={collageWorkbench.sheets}
           editingSheetIds={collageWorkbench.editingSheetIds}
+          experienceMode={props.experienceMode}
+          onSwitchAdvanced={props.onSwitchAdvanced}
           onCancel={() => setCollageWorkbench(null)}
           onApply={(sheetsToApply, editingSheetIds) => {
             const involvedMaterialIds = new Set(

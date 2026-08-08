@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import { MAX_PAGE_RANGE_EXPRESSION_LENGTH } from '../../src/shared/constants/document.js'
-import { parsePageRange } from '../../src/shared/utils/page-range.js'
+import {
+  formatPageRange,
+  normalizePageRange,
+  parsePageRange,
+} from '../../src/shared/utils/page-range.js'
 
 describe('parsePageRange', () => {
   it.each([
@@ -50,5 +54,20 @@ describe('parsePageRange', () => {
     const result = parsePageRange('1'.repeat(MAX_PAGE_RANGE_EXPRESSION_LENGTH + 1), 10)
     expect(result.success).toBe(false)
     expect(result.errors[0]?.code).toBe('too-long')
+  })
+
+  it('把等价页码集合规范为紧凑表达式且不改变有效页面', () => {
+    const expression = ' 1 - 3, 2, 5, 7 - 9, 8 '
+    const before = parsePageRange(expression, 10)
+    const normalized = normalizePageRange(expression, 10)
+    const after = normalized ? parsePageRange(normalized, 10) : null
+
+    expect(normalized).toBe('1-3,5,7-9')
+    expect(after?.pages).toEqual(before.pages)
+    expect(formatPageRange([3, 2, 1, 2], 3)).toBe('all')
+  })
+
+  it('无效页码表达式不会被自动改写', () => {
+    expect(normalizePageRange('3-1', 3)).toBeNull()
   })
 })

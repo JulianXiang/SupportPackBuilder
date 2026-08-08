@@ -11,6 +11,7 @@ import {
   Alert,
   App,
   Button,
+  Collapse,
   DatePicker,
   Descriptions,
   Divider,
@@ -27,6 +28,7 @@ import {
 import dayjs from 'dayjs'
 import { useEffect, useState } from 'react'
 import type { PagePlan, PlannedPage } from '../../../../shared/schemas/page-plan-schema.js'
+import type { ExperienceMode } from '../../../../shared/schemas/preferences-schema.js'
 import type {
   Material,
   MaterialSource,
@@ -79,6 +81,11 @@ type InspectorPanelProps = {
   onClearCache: () => void
   onRelocate: (materialId: string, sourceId: string) => void
   onReconvertOffice: (materialId: string, sourceId?: string) => void
+  experienceMode: ExperienceMode
+  maintenanceRequest: {
+    token: number
+    materialId: string
+  } | null
 }
 
 const PanelTitle = ({
@@ -102,6 +109,15 @@ const withoutRotation = (
 ): Record<string, Rotation> =>
   Object.fromEntries(Object.entries(values).filter(([id]) => id !== sourcePageId))
 
+const VALIDATION_STATUS_LABELS: Record<Material['validationStatus'], string> = {
+  valid: '正常',
+  warning: '需要检查',
+  error: '错误',
+  missing: '文件缺失',
+  encrypted: '文件已加密',
+  unsupported: '格式不支持',
+}
+
 const ProjectInspector = ({
   project,
   projectDirectory,
@@ -109,6 +125,7 @@ const ProjectInspector = ({
   onExportPortable,
   onImportPortable,
   onClearCache,
+  experienceMode,
 }: Pick<
   InspectorPanelProps,
   | 'project'
@@ -117,6 +134,7 @@ const ProjectInspector = ({
   | 'onExportPortable'
   | 'onImportPortable'
   | 'onClearCache'
+  | 'experienceMode'
 >): React.JSX.Element => (
   <>
     <PanelTitle title="项目属性" subtitle="封面基础信息与存储方式" />
@@ -209,19 +227,25 @@ const ProjectInspector = ({
           />
         </Form.Item>
       </Form>
-      <Descriptions
-        size="small"
-        column={1}
-        bordered
-        items={[
-          {
-            key: 'path',
-            label: '项目路径',
-            children: <span className="path-value">{projectDirectory}</span>,
-          },
-          { key: 'schema', label: '格式版本', children: `schemaVersion ${project.schemaVersion}` },
-        ]}
-      />
+      {experienceMode === 'advanced' && (
+        <Descriptions
+          size="small"
+          column={1}
+          bordered
+          items={[
+            {
+              key: 'path',
+              label: '项目路径',
+              children: <span className="path-value">{projectDirectory}</span>,
+            },
+            {
+              key: 'schema',
+              label: '格式版本',
+              children: `schemaVersion ${project.schemaVersion}`,
+            },
+          ]}
+        />
+      )}
       <Divider />
       <Typography.Text strong>封面与目录</Typography.Text>
       <Alert
@@ -444,103 +468,113 @@ const ProjectInspector = ({
             }
           />
         </Form.Item>
-        <Form.Item label="自动去白边安全边（mm）">
-          <InputNumber
-            min={0}
-            max={20}
-            step={0.5}
-            value={project.collageSettings.autoCropSafetyMillimeters}
-            onChange={(value) =>
-              value !== null &&
-              onMutate((draft) => {
-                draft.collageSettings.autoCropSafetyMillimeters = value
-              })
-            }
-          />
-        </Form.Item>
-        <Form.Item
-          label="图片清晰度（推荐 / 最低 DPI）"
-          extra="低于最低值的自动拼版会被阻止；手动拼版必须逐槽确认风险。"
-        >
-          <Space.Compact>
+        {experienceMode === 'advanced' && (
+          <Form.Item label="自动去白边安全边（mm）">
             <InputNumber
-              min={72}
-              max={600}
-              precision={0}
-              value={project.collageSettings.rasterPreferredDpi}
+              min={0}
+              max={20}
+              step={0.5}
+              value={project.collageSettings.autoCropSafetyMillimeters}
               onChange={(value) =>
                 value !== null &&
-                value >= project.collageSettings.rasterMinimumAutoDpi &&
                 onMutate((draft) => {
-                  draft.collageSettings.rasterPreferredDpi = value
+                  draft.collageSettings.autoCropSafetyMillimeters = value
                 })
               }
             />
-            <InputNumber
-              min={72}
-              max={project.collageSettings.rasterPreferredDpi}
-              precision={0}
-              value={project.collageSettings.rasterMinimumAutoDpi}
-              onChange={(value) =>
-                value !== null &&
-                value <= project.collageSettings.rasterPreferredDpi &&
-                onMutate((draft) => {
-                  draft.collageSettings.rasterMinimumAutoDpi = value
-                })
-              }
-            />
-          </Space.Compact>
-        </Form.Item>
-        <Form.Item
-          label="PDF 缩放（警告 / 最低）"
-          extra="例如 0.50 表示来源页按 50% 线性比例输出。"
-        >
-          <Space.Compact>
-            <InputNumber
-              min={0.1}
-              max={1}
-              step={0.05}
-              value={project.collageSettings.pdfWarningScale}
-              onChange={(value) =>
-                value !== null &&
-                value >= project.collageSettings.pdfMinimumAutoScale &&
-                onMutate((draft) => {
-                  draft.collageSettings.pdfWarningScale = value
-                })
-              }
-            />
-            <InputNumber
-              min={0.1}
-              max={project.collageSettings.pdfWarningScale}
-              step={0.05}
-              value={project.collageSettings.pdfMinimumAutoScale}
-              onChange={(value) =>
-                value !== null &&
-                value <= project.collageSettings.pdfWarningScale &&
-                onMutate((draft) => {
-                  draft.collageSettings.pdfMinimumAutoScale = value
-                })
-              }
-            />
-          </Space.Compact>
-        </Form.Item>
+          </Form.Item>
+        )}
+        {experienceMode === 'advanced' && (
+          <Form.Item
+            label="图片清晰度（推荐 / 最低 DPI）"
+            extra="低于最低值的自动拼版会被阻止；手动拼版必须逐槽确认风险。"
+          >
+            <Space.Compact>
+              <InputNumber
+                min={72}
+                max={600}
+                precision={0}
+                value={project.collageSettings.rasterPreferredDpi}
+                onChange={(value) =>
+                  value !== null &&
+                  value >= project.collageSettings.rasterMinimumAutoDpi &&
+                  onMutate((draft) => {
+                    draft.collageSettings.rasterPreferredDpi = value
+                  })
+                }
+              />
+              <InputNumber
+                min={72}
+                max={project.collageSettings.rasterPreferredDpi}
+                precision={0}
+                value={project.collageSettings.rasterMinimumAutoDpi}
+                onChange={(value) =>
+                  value !== null &&
+                  value <= project.collageSettings.rasterPreferredDpi &&
+                  onMutate((draft) => {
+                    draft.collageSettings.rasterMinimumAutoDpi = value
+                  })
+                }
+              />
+            </Space.Compact>
+          </Form.Item>
+        )}
+        {experienceMode === 'advanced' && (
+          <Form.Item
+            label="PDF 缩放（警告 / 最低）"
+            extra="例如 0.50 表示来源页按 50% 线性比例输出。"
+          >
+            <Space.Compact>
+              <InputNumber
+                min={0.1}
+                max={1}
+                step={0.05}
+                value={project.collageSettings.pdfWarningScale}
+                onChange={(value) =>
+                  value !== null &&
+                  value >= project.collageSettings.pdfMinimumAutoScale &&
+                  onMutate((draft) => {
+                    draft.collageSettings.pdfWarningScale = value
+                  })
+                }
+              />
+              <InputNumber
+                min={0.1}
+                max={project.collageSettings.pdfWarningScale}
+                step={0.05}
+                value={project.collageSettings.pdfMinimumAutoScale}
+                onChange={(value) =>
+                  value !== null &&
+                  value <= project.collageSettings.pdfWarningScale &&
+                  onMutate((draft) => {
+                    draft.collageSettings.pdfMinimumAutoScale = value
+                  })
+                }
+              />
+            </Space.Compact>
+          </Form.Item>
+        )}
       </Form>
-      <Divider />
-      <Typography.Text strong>项目维护</Typography.Text>
-      <Space wrap className="project-maintenance-actions">
-        <Button icon={<ExportOutlined />} onClick={onExportPortable}>
-          导出便携包
-        </Button>
-        <Button icon={<ImportOutlined />} onClick={onImportPortable}>
-          导入便携包
-        </Button>
-        <Button icon={<ClearOutlined />} onClick={onClearCache}>
-          清理缓存
-        </Button>
-      </Space>
-      <Typography.Paragraph type="secondary" className="maintenance-help">
-        便携包仅包含 project.json、assets 和版本信息，不包含缓存、临时文件与导出结果。
-      </Typography.Paragraph>
+      {experienceMode === 'advanced' && (
+        <>
+          <Divider />
+          <Typography.Text strong>项目维护</Typography.Text>
+          <Space wrap className="project-maintenance-actions">
+            <Button icon={<ExportOutlined />} onClick={onExportPortable}>
+              导出便携包
+            </Button>
+            <Button icon={<ImportOutlined />} onClick={onImportPortable}>
+              导入便携包
+            </Button>
+            <Button icon={<ClearOutlined />} onClick={onClearCache}>
+              清理缓存
+            </Button>
+          </Space>
+          <Typography.Paragraph type="secondary" className="maintenance-help">
+            便携包仅包含 project.json、assets 和版本信息，不包含缓存、临时文件与导出结果。
+          </Typography.Paragraph>
+        </>
+      )}
     </div>
   </>
 )
@@ -703,6 +737,8 @@ const MaterialInspector = ({
   onSelect,
   onRelocate,
   onReconvertOffice,
+  experienceMode,
+  maintenanceRequest,
 }: {
   project: Project
   material: Material
@@ -710,6 +746,8 @@ const MaterialInspector = ({
   onSelect: InspectorPanelProps['onSelect']
   onRelocate: InspectorPanelProps['onRelocate']
   onReconvertOffice: InspectorPanelProps['onReconvertOffice']
+  experienceMode: ExperienceMode
+  maintenanceRequest: InspectorPanelProps['maintenanceRequest']
 }): React.JSX.Element => {
   const { modal } = App.useApp()
   const [rangeValue, setRangeValue] = useState(material.selectedPageRanges)
@@ -744,6 +782,67 @@ const MaterialInspector = ({
   }
   const directoryOptions = project.outlineNodes.flatMap((node) =>
     node.children.map((child) => ({ value: child.id, label: `${node.title} / ${child.title}` })),
+  )
+  const sourceTypeLabel =
+    material.sourceType === 'pdf'
+      ? 'PDF'
+      : material.sourceType === 'office'
+        ? `Office（${material.sourceItems[0]?.conversion?.officeFormat.toUpperCase() ?? '未知'}）`
+        : material.sourceType === 'mixed'
+          ? `混合来源（${material.sourceItems.length} 个文件）`
+          : material.sourceType === 'imageCollection'
+            ? '图片集合'
+            : '图片'
+  const hasMaintenanceIssue = material.validationMessages.some(
+    (item) => item.code.startsWith('source-') || item.code.startsWith('office-snapshot-'),
+  )
+  const [technicalDetailsOpen, setTechnicalDetailsOpen] = useState(
+    hasMaintenanceIssue || maintenanceRequest?.materialId === material.id,
+  )
+  useEffect(() => {
+    setTechnicalDetailsOpen(hasMaintenanceIssue || maintenanceRequest?.materialId === material.id)
+  }, [hasMaintenanceIssue, maintenanceRequest?.token, material.id])
+  const technicalDetails = (
+    <>
+      <Descriptions
+        size="small"
+        column={1}
+        bordered
+        items={[
+          {
+            key: 'conversion',
+            label: '转换快照',
+            children:
+              material.sourceType === 'office'
+                ? `${material.sourceItems[0]?.conversion?.engineVersion ?? '不可用'} · ${
+                    material.sourceItems[0]?.conversion?.pageCount ?? 0
+                  } 页 · ${material.sourceItems[0]?.conversion?.snapshotStatus ?? 'error'}`
+                : '不适用',
+          },
+          {
+            key: 'path',
+            label: '来源路径',
+            children: (
+              <span className="path-value">{material.storedPath ?? material.sourcePath}</span>
+            ),
+          },
+        ]}
+      />
+      <Divider />
+      <Typography.Text strong>来源文件维护</Typography.Text>
+      <Space orientation="vertical" className="source-maintenance-list">
+        {material.sourceItems.map((source) => (
+          <MaterialSourceEditor
+            key={source.id}
+            material={material}
+            source={source}
+            onMutate={onMutate}
+            onRelocate={onRelocate}
+            onReconvertOffice={onReconvertOffice}
+          />
+        ))}
+      </Space>
+    </>
   )
   return (
     <>
@@ -810,37 +909,79 @@ const MaterialInspector = ({
               }
             />
           </Form.Item>
-          {(material.sourceType === 'pdf' || material.sourceType === 'office') && (
-            <Form.Item
-              label="PDF 页码范围"
-              validateStatus={
-                parsedRange?.success === false
-                  ? 'error'
-                  : parsedRange?.warnings.length
-                    ? 'warning'
-                    : ''
-              }
-              help={
-                parsedRange?.success === false
-                  ? parsedRange.errors[0]?.message
-                  : parsedRange?.warnings.map((warning) => warning.message).join(' ')
-              }
-            >
-              <Input
-                aria-label="PDF 页码范围"
-                value={rangeValue}
-                onChange={(event) => setRangeValue(event.target.value)}
-                onBlur={() => {
-                  if (parsedRange?.success && rangeValue !== material.selectedPageRanges)
+          {(material.sourceType === 'pdf' || material.sourceType === 'office') &&
+            experienceMode === 'basic' && (
+              <Form.Item label="参与编排的页面">
+                <Select
+                  aria-label="参与编排的页面"
+                  value={rangeValue.toLowerCase() === 'all' ? 'all' : 'custom'}
+                  options={[
+                    { value: 'all', label: '全部页面' },
+                    { value: 'custom', label: '指定页码范围' },
+                  ]}
+                  onChange={(value) => {
+                    const next = value === 'all' ? 'all' : `1-${material.pageCount}`
+                    setRangeValue(next)
                     onMutate((draft) => {
                       const found = findMaterial(draft, material.id)
-                      if (found) found.material.selectedPageRanges = rangeValue
+                      if (found) found.material.selectedPageRanges = next
                     })
-                }}
-                placeholder="例如 1-3,6,8-10 或 all"
-              />
-            </Form.Item>
-          )}
+                  }}
+                />
+                {rangeValue.toLowerCase() !== 'all' && (
+                  <Input
+                    className="page-range-detail-input"
+                    aria-label="PDF 页码范围"
+                    value={rangeValue}
+                    status={parsedRange?.success === false ? 'error' : ''}
+                    onChange={(event) => setRangeValue(event.target.value)}
+                    onBlur={() => {
+                      if (parsedRange?.success && rangeValue !== material.selectedPageRanges)
+                        onMutate((draft) => {
+                          const found = findMaterial(draft, material.id)
+                          if (found) found.material.selectedPageRanges = rangeValue
+                        })
+                    }}
+                    placeholder="例如 1-3,6,8-10"
+                  />
+                )}
+                {parsedRange?.success === false && (
+                  <Typography.Text type="danger">{parsedRange.errors[0]?.message}</Typography.Text>
+                )}
+              </Form.Item>
+            )}
+          {(material.sourceType === 'pdf' || material.sourceType === 'office') &&
+            experienceMode === 'advanced' && (
+              <Form.Item
+                label="PDF 页码范围"
+                validateStatus={
+                  parsedRange?.success === false
+                    ? 'error'
+                    : parsedRange?.warnings.length
+                      ? 'warning'
+                      : ''
+                }
+                help={
+                  parsedRange?.success === false
+                    ? parsedRange.errors[0]?.message
+                    : parsedRange?.warnings.map((warning) => warning.message).join(' ')
+                }
+              >
+                <Input
+                  aria-label="PDF 页码范围"
+                  value={rangeValue}
+                  onChange={(event) => setRangeValue(event.target.value)}
+                  onBlur={() => {
+                    if (parsedRange?.success && rangeValue !== material.selectedPageRanges)
+                      onMutate((draft) => {
+                        const found = findMaterial(draft, material.id)
+                        if (found) found.material.selectedPageRanges = rangeValue
+                      })
+                  }}
+                  placeholder="例如 1-3,6,8-10 或 all"
+                />
+              </Form.Item>
+            )}
           <Form.Item label="备注">
             <CommitInput
               value={material.notes}
@@ -887,29 +1028,10 @@ const MaterialInspector = ({
             {
               key: 'type',
               label: '来源类型',
-              children:
-                material.sourceType === 'pdf'
-                  ? 'PDF'
-                  : material.sourceType === 'office'
-                    ? `Office（${material.sourceItems[0]?.conversion?.officeFormat.toUpperCase() ?? '未知'}）`
-                    : material.sourceType === 'mixed'
-                      ? `混合来源（${material.sourceItems.length} 个文件）`
-                      : material.sourceType === 'imageCollection'
-                        ? '图片集合'
-                        : '图片',
+              children: sourceTypeLabel,
             },
             { key: 'name', label: '原始文件', children: material.originalFileName },
             { key: 'pages', label: '原始页数', children: material.pageCount },
-            {
-              key: 'conversion',
-              label: '转换快照',
-              children:
-                material.sourceType === 'office'
-                  ? `${material.sourceItems[0]?.conversion?.engineVersion ?? '不可用'} · ${
-                      material.sourceItems[0]?.conversion?.pageCount ?? 0
-                    } 页 · ${material.sourceItems[0]?.conversion?.snapshotStatus ?? 'error'}`
-                  : '不适用',
-            },
             {
               key: 'size',
               label: '文件大小',
@@ -928,15 +1050,8 @@ const MaterialInspector = ({
                         : 'red'
                   }
                 >
-                  {material.validationStatus}
+                  {VALIDATION_STATUS_LABELS[material.validationStatus]}
                 </Tag>
-              ),
-            },
-            {
-              key: 'path',
-              label: '来源路径',
-              children: (
-                <span className="path-value">{material.storedPath ?? material.sourcePath}</span>
               ),
             },
           ]}
@@ -954,20 +1069,24 @@ const MaterialInspector = ({
             description={item.suggestion}
           />
         ))}
-        <Divider />
-        <Typography.Text strong>来源文件维护</Typography.Text>
-        <Space orientation="vertical" className="source-maintenance-list">
-          {material.sourceItems.map((source) => (
-            <MaterialSourceEditor
-              key={source.id}
-              material={material}
-              source={source}
-              onMutate={onMutate}
-              onRelocate={onRelocate}
-              onReconvertOffice={onReconvertOffice}
-            />
-          ))}
-        </Space>
+        {experienceMode === 'advanced' ? (
+          technicalDetails
+        ) : (
+          <Collapse
+            className="technical-details-collapse"
+            activeKey={technicalDetailsOpen ? ['technical'] : []}
+            onChange={(keys) => setTechnicalDetailsOpen(keys.includes('technical'))}
+            items={[
+              {
+                key: 'technical',
+                label: hasMaintenanceIssue
+                  ? '技术详情与来源维护（需要处理）'
+                  : '技术详情与来源维护',
+                children: technicalDetails,
+              },
+            ]}
+          />
+        )}
         {material.removedPages.length > 0 && (
           <Alert
             className="validation-alert"
@@ -1010,10 +1129,12 @@ const PageInspector = ({
   project,
   page,
   onMutate,
+  experienceMode,
 }: {
   project: Project
   page: PlannedPage
   onMutate: InspectorPanelProps['onMutate']
+  experienceMode: ExperienceMode
 }): React.JSX.Element => {
   const material = page.materialId ? findMaterial(project, page.materialId)?.material : null
   return (
@@ -1026,7 +1147,6 @@ const PageInspector = ({
           bordered
           items={[
             { key: 'title', label: '页面标题', children: page.displayTitle },
-            { key: 'type', label: '页面类型', children: page.pageType },
             {
               key: 'logical',
               label: '逻辑页码',
@@ -1037,13 +1157,20 @@ const PageInspector = ({
               label: '目标方向',
               children: page.targetOrientation === 'portrait' ? 'A4 纵向' : 'A4 横向',
             },
-            { key: 'rotation', label: '附加旋转', children: `${page.rotation}°` },
-            {
-              key: 'source',
-              label: '来源页',
-              children:
-                page.sourcePageIndex === null ? '生成页' : `第 ${page.sourcePageIndex + 1} 页`,
-            },
+            ...(experienceMode === 'advanced'
+              ? [
+                  { key: 'type', label: '页面类型', children: page.pageType },
+                  { key: 'rotation', label: '附加旋转', children: `${page.rotation}°` },
+                  {
+                    key: 'source',
+                    label: '来源页',
+                    children:
+                      page.sourcePageIndex === null
+                        ? '生成页'
+                        : `第 ${page.sourcePageIndex + 1} 页`,
+                  },
+                ]
+              : []),
           ]}
         />
         {material && page.sourcePageId ? (
@@ -1131,6 +1258,8 @@ export const InspectorPanel = (props: InspectorPanelProps): React.JSX.Element =>
             onSelect={props.onSelect}
             onRelocate={props.onRelocate}
             onReconvertOffice={props.onReconvertOffice}
+            experienceMode={props.experienceMode}
+            maintenanceRequest={props.maintenanceRequest}
           />
         </aside>
       )
@@ -1140,7 +1269,12 @@ export const InspectorPanel = (props: InspectorPanelProps): React.JSX.Element =>
     if (page)
       return (
         <aside className="inspector-panel">
-          <PageInspector project={props.project} page={page} onMutate={props.onMutate} />
+          <PageInspector
+            project={props.project}
+            page={page}
+            onMutate={props.onMutate}
+            experienceMode={props.experienceMode}
+          />
         </aside>
       )
   }
@@ -1160,6 +1294,7 @@ export const InspectorPanel = (props: InspectorPanelProps): React.JSX.Element =>
         onExportPortable={props.onExportPortable}
         onImportPortable={props.onImportPortable}
         onClearCache={props.onClearCache}
+        experienceMode={props.experienceMode}
       />
     </aside>
   )
